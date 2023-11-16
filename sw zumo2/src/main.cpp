@@ -13,6 +13,7 @@ Zumo32U4LineSensors lineSensors;
 float battery_level = 100;      // batteri prosent
 float batteryDrainAvgSpeed = 0; // batteri utladning fra gjennomsnittsfart * avstand
 
+
 // for linjefølger
 unsigned int lineSensorArray[5]; // array til sensorveridiene
 
@@ -203,7 +204,7 @@ void speedometer()
 
   if (millis() - timeLastMinuteUpdateEnd > 15) // mer nøyaktige verdier dersom den oppdateres med litt mer mellomrom. er orignalt 4ms perioder
   {
-    if (timeMotorsOnThisPeriod < 60000)
+    if (timeMotorsOnThisPeriod < 8000)
     {
       timeElapsedMinuteUpdate = millis() - timeLastMinuteUpdateEnd; // periodens varighet
 
@@ -260,7 +261,7 @@ Serial.println(ticksDuringPeriod);
 
 void batteryLowWarning (int batteryHealth) // skrur på lys når battery_level er under arg.1
 {
-  if (battery_level > batteryHealth){
+  if (battery_level < batteryHealth){
     ledRed(HIGH);
   }
 }
@@ -268,14 +269,17 @@ void batteryLowWarning (int batteryHealth) // skrur på lys når battery_level e
 
 void batteryDrain()
 {
-  batteryLowWarning();
+  batteryLowWarning(20);
   
   if (periodFinished == HIGH)
   {
-    batteryDrainAvgSpeed = (displayTicksDuringMinute * displayAverageSpeedMinute) / 100000;
+    batteryDrainAvgSpeed = (displayTicksDuringMinute * displayAverageSpeedMinute) / 1000000; // tallverdien er en vilkårelig konstant for å få en fornuftig nedladning
+
+    battery_level = battery_level - batteryDrainAvgSpeed; // fjerner denne perioden sitt batteriforbruk. 
 
     periodFinished = LOW;
   }
+
 }
 
 void driveModeButton()
