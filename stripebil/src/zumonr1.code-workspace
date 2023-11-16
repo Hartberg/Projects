@@ -1,0 +1,23 @@
+{
+	"folders": [
+		{
+			"name": "zumonr1",
+			"path": "../../zumonr1"
+		},
+		{
+			"name": "stripebil",
+			"path": ".."
+		},
+		{
+			"name": "sw batteribil",
+			"path": "../../sw batteribil"
+		},
+		{
+			"name": "sw zumo2",
+			"path": "../../sw zumo2"
+		}
+	],
+	"settings": {
+		"arduino.analyzeOnSettingChange": true
+	}
+}
