@@ -13,6 +13,9 @@ Zumo32U4LineSensors lineSensors;
 float battery_level = 100;      // batteri prosent
 float batteryDrainAvgSpeed = 0; // batteri utladning fra gjennomsnittsfart * avstand
 
+// oppladningsvariabler
+float distanceSincelastReverseCharge = 0; // avstand siden siste reversecharge
+float totalBatteryCharge = 0;             // total batteri oppladning i antall prosent
 
 // for linjefølger
 unsigned int lineSensorArray[5]; // array til sensorveridiene
@@ -25,7 +28,8 @@ int position = 0;         // linejposijon 0-4000
 
 // tick telling
 unsigned long timeNow = 0;        // tiden i perioden
-float ticksDuringPeriod = 0;      // antall ticks for en periode. er float for mattematikken den brukes i
+float absTicksDuringPeriod = 0;   // absoluttverdi av antall ticks for en periode. er float for mattematikken den brukes i. avstand uabhengig av retning
+float ticksDuringPeriod = 0;      // antall ticks i
 float timeElapsed = 0;            // tiden på periode.  er float for mattematikken den brukes i
 unsigned long lastTimePeriod = 0; // tiden sist periode var
 
@@ -34,7 +38,8 @@ unsigned long lastTimePrint = 0; // sist displaey ble oppdatert: for tidsdelay
 int displayMode = 1;             // caser til displayet
 
 // speedometer
-float speed = 0;                           // utregnet momentanfart
+float speed = 0;                           // utregnet absolutt momentanfart
+float signedSpeed = 0;                     // momentanfart med fortegn
 unsigned long totalDistance = 0;           // total distanse kjørt i meter
 unsigned long lastMinuteUpdate = 0;        // timer for siste hele minuteUpdate reset
 unsigned long timeElapsedMinuteUpdate = 0; // hvor lenge siden sist minute update loop. aka lengden på denne perioden
@@ -57,6 +62,8 @@ unsigned long ticksDuringMinuteUpdate = 0; // antall ticks per minuteUpdate
 
 // drive variabler
 int driveMode = 0; // kjøremodus
+// bank variabler
+float bankBalance = 0.0 // Startsaldo for bankkonto
 
 void calibrate()
 { // kalibrere sensorene
@@ -177,6 +184,12 @@ void printValues()
       oled.gotoXY(0, 4);
       oled.print("battery:");
       oled.print(battery_level);
+      oled.gotoXY(0, 5);
+      oled.print("unsigned speed:");
+      oled.print(signedSpeed);
+      oled.gotoXY(0, 6);
+      oled.print("total lad:");
+      oled.print(totalBatteryCharge);
 
       lastTimePrint = millis();
     }
@@ -188,10 +201,13 @@ void tickSensor()
   if (millis() - lastTimePeriod > 15) // får mer nøyaktige verider når decoderen får tellt en del rotasjoner
   {
     int leftEncoder = encoders.getCountsAndResetLeft();
-    leftEncoder = abs(leftEncoder); // får absoluttverdi
     int rightEncoder = encoders.getCountsAndResetRight();
+
+    ticksDuringPeriod = (leftEncoder + rightEncoder) / 2; // avstand med fortegn
+
     rightEncoder = abs(rightEncoder);
-    ticksDuringPeriod = (leftEncoder + rightEncoder) / 2;
+    leftEncoder = abs(leftEncoder); // får absoluttverdi
+    absTicksDuringPeriod = (leftEncoder + rightEncoder) / 2;
 
     timeElapsed = millis() - lastTimePeriod; // tid siden sist periode. aka denne periodens tid
     lastTimePeriod = millis();
@@ -200,7 +216,8 @@ void tickSensor()
 
 void speedometer()
 {
-  speed = (ticksDuringPeriod / timeElapsed) * 13.617; // momentanfart
+  speed = (absTicksDuringPeriod / timeElapsed) * 13.617;    // momentanfart
+  signedSpeed = (ticksDuringPeriod / timeElapsed) * 13.617; // hastighet med fortegn
 
   if (millis() - timeLastMinuteUpdateEnd > 15) // mer nøyaktige verdier dersom den oppdateres med litt mer mellomrom. er orignalt 4ms perioder
   {
@@ -225,7 +242,10 @@ void speedometer()
         // average speed
         sampleSizeSpeedometer++;
         speedSum += speed;
-        ticksDuringMinuteUpdate += ticksDuringPeriod; // antall ticks i en periode
+        ticksDuringMinuteUpdate += absTicksDuringPeriod; // antall ticks i en periode
+
+        // total avstand i cm
+        totalDistance += absTicksDuringPeriod / 13.617;
       }
 
       timeLastMinuteUpdateEnd = millis();
@@ -237,7 +257,6 @@ void speedometer()
       displayTimeOver70 = timeOver70 / 1000;
       displayMaxSpeedMinute = maxSpeedMinute;
       displayTicksDuringMinute = ticksDuringMinuteUpdate;
-      totalDistance += ticksDuringMinuteUpdate / 13617.00; // 13617 ticks per meter
       // resett verdier til ny 60s periode
       timeOver70 = 0;
       maxSpeedMinute = 0;
@@ -255,43 +274,120 @@ Serial.print(" timeElacpes ");
 Serial.print(timeElapsed);
 Serial.print(" speed ");
 Serial.print(speed);
-Serial.print(" ticksDuringPeriod ");
-Serial.println(ticksDuringPeriod);
+Serial.print(" absTicksDuringPeriod ");
+Serial.println(absTicksDuringPeriod);
 */
 
-void batteryLowWarning (int batteryHealth) // skrur på lys når battery_level er under arg.1
+void batteryLowWarning(int batteryHealth) // skrur på lys når battery_level er under arg.1
 {
-  if (battery_level < batteryHealth){
+  if (battery_level < batteryHealth)
+  {
     ledRed(HIGH);
   }
 }
 
-
-void batteryDrain()
+void batteryDrain() // to do: lag denne lik reverseCharge så får vi oppdatert hver oppdatering.
 {
-  batteryLowWarning(20);
-  
-  if (periodFinished == HIGH)
+  batteryLowWarning(95); // signaliserer lav batteri.
+
+  if (periodFinished == HIGH) // kjører hver gang minuteUpdate er oppdatert
   {
     batteryDrainAvgSpeed = (displayTicksDuringMinute * displayAverageSpeedMinute) / 1000000; // tallverdien er en vilkårelig konstant for å få en fornuftig nedladning
 
-    battery_level = battery_level - batteryDrainAvgSpeed; // fjerner denne perioden sitt batteriforbruk. 
-
+    battery_level = battery_level - batteryDrainAvgSpeed; // fjerner denne perioden sitt batteriforbruk.
     periodFinished = LOW;
   }
-
 }
+
+void reverseCharge(bool emergancy) // lader opp batteriet når den rygger
+{
+  float batteryCharge = 0;                                             // batterioppladningsmengden
+  if (signedSpeed < 0 && (battery_level > 0) && (battery_level < 100)) // legg til && battery < 100 så den ikke lader over 100%
+  {
+    distanceSincelastReverseCharge = totalDistance - distanceSincelastReverseCharge;
+
+    if (emergancy == true && battery_level < 20) // kondisjon for emergancymodus
+    {
+      batteryCharge = (speed * distanceSincelastReverseCharge) / 100000; // lader 10 x hastighet til normal lading
+    }
+    else // normal lading
+    {
+      batteryCharge = (speed * distanceSincelastReverseCharge) / 10000000;
+    }
+
+    battery_level += batteryCharge;      // ladning vi utfører denne perioden
+    totalBatteryCharge += batteryCharge; // total mengde ladning
+  }
+  if (battery_level > 100)
+  { // passer på at batteri nivået ikke blir mer enn 100%.
+    battery_level = 100;
+  }
+}
+
+void emerganc
+
 
 void driveModeButton()
 { // knapp for kjøremodus
   if (buttonB.getSingleDebouncedPress())
   {
     driveMode++;
-    if (driveMode == 2)
+    if (driveMode == 4)
     {
       driveMode = 0;
     }
   }
+}
+
+void driveModeBased()
+{ // case med kjør frem tilbake og stå stille ved trykk på knapp B
+  switch (driveMode)
+  {
+  case 0:
+    drive(250);
+    break;
+
+  case 1:
+    drive(0);
+    break;
+
+  case 2:
+    drive(-200);
+    break;
+
+  case 3:
+    drive(0);
+    break;
+  }
+}
+
+
+void deposit(float amount) { //
+  // Etter en jobb er blitt gjort
+  bankBalance += amount; // Legg til mengden "amount" som skal legges til i balance
+
+}
+// Simulere uttak
+void withdraw(){
+  // Når en besøker ladestasjon
+  // Sjekker først om man har nok penger på konto
+  if (amount <= balance){
+    balance -= amount; // trekker fra amount penkger som trekkes fra balance
+  } else { // Dersom man ikke har nok penger
+  oled.clear();
+  oled.setLayout21x8();
+    oled.gotoXY(0,2);
+    oled.print("U too broke bitch!");
+    oled.gotoXY(0,4);
+    oled.print("Current balance: ");
+    oled.gotoXY(0,6);
+    oled.print(balance);
+  }
+}
+// Ladestasjon ikke ferdi!
+void charging(float& battery, float chargeRate) {
+  // Øker batterinivået basert på ladetakt
+battery += chargeRate;
 }
 
 void setup()
@@ -306,17 +402,10 @@ void loop()
   tickSensor();
   speedometer();
   batteryDrain();
+  reverseCharge(false);
   printValues();
   updateSensors();
   // followLineP();
   driveModeButton();
-
-  if (driveMode == 0)
-  {
-    drive(250);
-  }
-  else
-  {
-    drive(0);
-  }
+  driveModeBased();
 }
