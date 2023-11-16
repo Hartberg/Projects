@@ -258,8 +258,18 @@ Serial.print(" ticksDuringPeriod ");
 Serial.println(ticksDuringPeriod);
 */
 
+void batteryLowWarning (int batteryHealth) // skrur på lys når battery_level er under arg.1
+{
+  if (battery_level > batteryHealth){
+    ledRed(HIGH);
+  }
+}
+
+
 void batteryDrain()
 {
+  batteryLowWarning();
+  
   if (periodFinished == HIGH)
   {
     batteryDrainAvgSpeed = (displayTicksDuringMinute * displayAverageSpeedMinute) / 100000;
