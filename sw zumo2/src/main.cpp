@@ -269,14 +269,6 @@ void speedometer()
     }
   }
 }
-/*
-Serial.print(" timeElacpes ");
-Serial.print(timeElapsed);
-Serial.print(" speed ");
-Serial.print(speed);
-Serial.print(" absTicksDuringPeriod ");
-Serial.println(absTicksDuringPeriod);
-*/
 
 void batteryLowWarning(int batteryHealth) // skrur på lys når battery_level er under arg.1
 {
@@ -324,9 +316,6 @@ void reverseCharge(bool emergancy) // lader opp batteriet når den rygger
   }
 }
 
-void emerganc
-
-
 void driveModeButton()
 { // knapp for kjøremodus
   if (buttonB.getSingleDebouncedPress())
@@ -360,7 +349,6 @@ void driveModeBased()
     break;
   }
 }
-
 
 void deposit(float amount) { //
   // Etter en jobb er blitt gjort
