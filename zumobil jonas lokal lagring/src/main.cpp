@@ -8,7 +8,7 @@ dette er hartberg sin private redigeringsfil jeg bruker til å teste funksjoner 
 
 
 
-
+Ikke rør
 
 
 
@@ -32,6 +32,7 @@ float batteryDrainAvgSpeed = 0; // batteri utladning fra gjennomsnittsfart * avs
 // oppladningsvariabler
 float distanceSincelastReverseCharge = 0; // avstand siden siste reversecharge
 float totalBatteryCharge = 0;             // total batteri oppladning i antall prosent
+int charging_cycles = 0;                  // antall ladesykluser
 
 // for linjefølger
 unsigned int lineSensorArray[5]; // array til sensorveridiene
@@ -206,6 +207,9 @@ void printValues()
       oled.gotoXY(0, 6);
       oled.print("total lad:");
       oled.print(totalBatteryCharge);
+      oled.gotoXY(0, 7);
+      oled.print("charce cycle:");
+      oled.print(charging_cycles);
 
       lastTimePrint = millis();
     }
@@ -294,43 +298,55 @@ void batteryLowWarning(int batteryHealth) // skrur på lys når battery_level er
   }
 }
 
-void batteryDrain() // to do: lag denne lik reverseCharge så får vi oppdatert hver oppdatering.
+void nrChargecycles() // oppdaterer ladesykluser
 {
-  batteryLowWarning(95); // signaliserer lav batteri.
-
-  if (periodFinished == HIGH) // kjører hver gang minuteUpdate er oppdatert
+  if (totalBatteryCharge > 100 + charging_cycles * 100)
   {
-    batteryDrainAvgSpeed = (displayTicksDuringMinute * displayAverageSpeedMinute) / 1000000; // tallverdien er en vilkårelig konstant for å få en fornuftig nedladning
-
-    battery_level = battery_level - batteryDrainAvgSpeed; // fjerner denne perioden sitt batteriforbruk.
-    periodFinished = LOW;
+    charging_cycles++;
   }
 }
 
-void reverseCharge(bool emergancy) // lader opp batteriet når den rygger
+void batteryChargeDrain(bool emergancy, bool allowReverseCharge) // lader opp batteriet når den rygger. NB!: om vi skal utlade tregere må vi sette på et tidsdelay da opp/utladningsverdien nå er 0.01 som er minste verdi mulig
 {
-  float batteryCharge = 0;                                             // batterioppladningsmengden
-  if (signedSpeed < 0 && (battery_level > 0) && (battery_level < 100)) // legg til && battery < 100 så den ikke lader over 100%
+
+  batteryLowWarning(30);
+  float batteryCharge = 0;                            // batterioppladningsmengden
+  if ((battery_level >= 0) && (battery_level <= 100)) // legg til && battery < 100 så den ikke lader over 100%
   {
     distanceSincelastReverseCharge = totalDistance - distanceSincelastReverseCharge;
 
-    if (emergancy == true && battery_level < 20) // kondisjon for emergancymodus
+    if (allowReverseCharge) // tillater lading og utlading
     {
-      batteryCharge = (speed * distanceSincelastReverseCharge) / 100000; // lader 10 x hastighet til normal lading
+      batteryCharge = (-1 * signedSpeed * distanceSincelastReverseCharge) / 10000000;
     }
-    else // normal lading
+    else if (signedSpeed > 0) // tilater kun utlading (nomralstatus)
     {
-      batteryCharge = (speed * distanceSincelastReverseCharge) / 10000000;
+      batteryCharge = (-1 * speed * distanceSincelastReverseCharge) / 10000000;
     }
 
-    battery_level += batteryCharge;      // ladning vi utfører denne perioden
-    totalBatteryCharge += batteryCharge; // total mengde ladning
+    if (emergancy == true && battery_level < 20 && batteryCharge < 0) // nødlading
+    {
+      batteryCharge = batteryCharge * 10;
+    }
+
+    battery_level += batteryCharge;               // ladning vi utfører denne perioden
+    if (batteryCharge > 0 && battery_level < 100) // legg till totale lademengde
+    {
+      totalBatteryCharge += batteryCharge; // total mengde ladning
+    }
+
+    
   }
   if (battery_level > 100)
   { // passer på at batteri nivået ikke blir mer enn 100%.
     battery_level = 100;
   }
+  else if (battery_level <0) {
+    battery_level = 0;
+  }
+  nrChargecycles();
 }
+
 
 void driveModeButton()
 { // knapp for kjøremodus
@@ -366,11 +382,12 @@ void driveModeBased()
   }
 }
 
-void deposit(float amount) { //
+void deposit(float amount)
+{ //
   // Etter en jobb er blitt gjort
   bankBalance += amount; // Legg til mengden "amount" som skal legges til i balance
-
 }
+/*
 // Simulere uttak
 void withdraw(){
   // Når en besøker ladestasjon
@@ -393,7 +410,7 @@ void charging(float& battery, float chargeRate) {
   // Øker batterinivået basert på ladetakt
 battery += chargeRate;
 }
-
+*/
 void setup()
 {
   Serial.begin(9600);
@@ -405,8 +422,7 @@ void loop()
 {
   tickSensor();
   speedometer();
-  batteryDrain();
-  reverseCharge(false);
+  batteryChargeDrain(true, true); // 1. arg nødmus 2. arg om opplading lov
   printValues();
   updateSensors();
   // followLineP();
