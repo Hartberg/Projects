@@ -1,3 +1,19 @@
+/*
+
+
+
+
+
+dette er hartberg sin private redigeringsfil jeg bruker til å teste funksjoner før jeg implementerer det i "zumo2" hovedfilen vår
+
+
+
+
+
+
+
+
+*/
 
 #include <Arduino.h>
 #include <Zumo32U4.h>
