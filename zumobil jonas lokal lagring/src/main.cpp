@@ -21,7 +21,9 @@ Ikke rør
 Zumo32U4Motors motors;
 Zumo32U4ButtonA buttonA;
 Zumo32U4ButtonB buttonB;
+Zumo32U4ButtonC buttonC;
 Zumo32U4Encoders encoders;
+Zumo32U4Buzzer buzzer;
 Zumo32U4OLED oled;
 Zumo32U4LineSensors lineSensors;
 
@@ -29,19 +31,21 @@ Zumo32U4LineSensors lineSensors;
 float battery_level = 100;      // batteri prosent
 float batteryDrainAvgSpeed = 0; // batteri utladning fra gjennomsnittsfart * avstand
 
-// oppladningsvariabler
+// --oppladningsvariabler
 float distanceSincelastReverseCharge = 0; // avstand siden siste reversecharge
 float totalBatteryCharge = 0;             // total batteri oppladning i antall prosent
 int charging_cycles = 0;                  // antall ladesykluser
+bool emergancyCharge = false;             // om nødlading er på eller ikke
+unsigned long emergancyChargeTimer = 0;   // når emergancymode blir aktivert
+unsigned long cPressed = 0;               // når c ble trykket
 
 // for linjefølger
 unsigned int lineSensorArray[5]; // array til sensorveridiene
-
-int speedLeft = 0;        // venstre hjulhastigehet
-int speedRight = 0;       // høyre hjulhastighet
-int normalSpeed = 225;    // basisfart for linjefølging
-float lineMultiplier = 0; // tallet hjulene skal ganges med for linjefølging
-int position = 0;         // linejposijon 0-4000
+int speedLeft = 0;               // venstre hjulhastigehet
+int speedRight = 0;              // høyre hjulhastighet
+int normalSpeed = 225;           // basisfart for linjefølging
+float lineMultiplier = 0;        // tallet hjulene skal ganges med for linjefølging
+int position = 0;                // linejposijon 0-4000
 
 // tick telling
 unsigned long timeNow = 0;        // tiden i perioden
@@ -68,17 +72,17 @@ int displayTimeOver70 = 0;                 // displayverdi oppgitt i sekunder
 float displayMaxSpeedMinute = 0;           // displayverdi til maxspeed
 
 // speedometer - average
-float displayAverageSpeedMinute = 0;     // gjennomsnittshastighet i minuteUpdate
-long displayTicksDuringMinute = 0;       // viser sist periodes totale ticks
-long displaytimeElapsedMinuteUpdate = 0; // sist periodes beregning av hastighet
-float sampleSizeSpeedometer = 0;         // hvor mange loops i perioden
-unsigned long speedSum = 0;              // summen av speed i en periode. deles på samplessize for gjennomsnittshastighet
-long timeMotorsOnThisPeriod = 0;         // tiden i en periode motorene har vært på
-// long display
+float displayAverageSpeedMinute = 0;       // gjennomsnittshastighet i minuteUpdate
+long displayTicksDuringMinute = 0;         // viser sist periodes totale ticks
+long displaytimeElapsedMinuteUpdate = 0;   // sist periodes beregning av hastighet
+float sampleSizeSpeedometer = 0;           // hvor mange loops i perioden
+unsigned long speedSum = 0;                // summen av speed i en periode. deles på samplessize for gjennomsnittshastighet
+long timeMotorsOnThisPeriod = 0;           // tiden i en periode motorene har vært på
 unsigned long ticksDuringMinuteUpdate = 0; // antall ticks per minuteUpdate
 
 // drive variabler
 int driveMode = 0; // kjøremodus
+
 // bank variabler
 float bankBalance = 0.0; // Startsaldo for bankkonto
 
@@ -334,19 +338,48 @@ void batteryChargeDrain(bool emergancy, bool allowReverseCharge) // lader opp ba
     {
       totalBatteryCharge += batteryCharge; // total mengde ladning
     }
-
-    
   }
   if (battery_level > 100)
   { // passer på at batteri nivået ikke blir mer enn 100%.
     battery_level = 100;
   }
-  else if (battery_level <0) {
+  else if (battery_level < 0)
+  {
     battery_level = 0;
   }
   nrChargecycles();
 }
 
+void emergancyCheck()
+{
+  if (buttonC.getSingleDebouncedPress()) // tar tiden på når knapp blir trykket
+  {
+    cPressed = millis();
+  }
+
+  if (buttonC.getSingleDebouncedRelease()) // // sjekker om knappen er trykket mer enn 2 sekunder
+  {
+    if (millis() - cPressed > 2000)
+    {
+      emergancyCharge = true;
+      emergancyChargeTimer = millis();
+    }
+  }
+
+  if (emergancyCharge == true && millis() - emergancyChargeTimer > 20000) // skrur av funksjonen etter
+  {
+    emergancyCharge = false;
+  }
+
+  if (emergancyCharge == true) // bare en indikator for om emergancy mode er på kan/burde endres f.eks noe beep
+  {
+    ledYellow(true);
+  }
+  else
+  {
+    ledYellow(false);
+  }
+}
 
 void driveModeButton()
 { // knapp for kjøremodus
@@ -422,10 +455,17 @@ void loop()
 {
   tickSensor();
   speedometer();
-  batteryChargeDrain(true, true); // 1. arg nødmus 2. arg om opplading lov
+  batteryChargeDrain(emergancyCharge, true); // 1. arg nødmus 2. arg om opplading lov
   printValues();
   updateSensors();
   // followLineP();
   driveModeButton();
+  emergancyCheck();
   driveModeBased();
 }
+
+/*
+To do:
+hidden modus
+- knappetrykk for nødmodus
+*/
