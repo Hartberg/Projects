@@ -16,6 +16,7 @@ Ikke rør
 */
 
 #include <Arduino.h>
+#include <EEPROM.h> 
 #include <Zumo32U4.h>
 
 Zumo32U4Motors motors;
@@ -444,11 +445,57 @@ void charging(float& battery, float chargeRate) {
 battery += chargeRate;
 }
 */
+
+
+ // disse er per 18/11 19:49 ikke implementert inn i koden mer enn at funksjonene er skrevet inn. de blir ikke brukt
+void levels()
+{
+  oled.print(F("Lev"));
+  oled.println(EEPROM.read(0));
+  delay(1000);
+  oled.clear();
+  oled.print(F("Hels"));
+  oled.println(EEPROM.read(1));
+  delay(1000);
+  oled.clear();
+}
+
+void ProductionFualt()
+{
+  int BatHelseRand;
+  int RandomHealthOne = random(0, 1000);
+  int RandomHealthTwo = random (0, 1000);
+  int RandomHealthThree = random(0, 1000);
+  if (RandomHealthOne == RandomHealthTwo && RandomHealthOne == RandomHealthThree)
+  {
+    int BatHelseRand = EEPROM.read(1);
+    int BatHelseNow = BatHelseRand / 2;
+    EEPROM.write(1, BatHelseNow);
+    oled.clear();
+    oled.print(BatHelseNow);
+  }
+}
+
+void writeUnsignedIntIntoEEPROM(int address, unsigned int number)
+{ 
+  EEPROM.write(address, number >> 8);
+  EEPROM.write(address + 1, number & 0xFF);
+}
+unsigned int readUnsignedIntFromEEPROM(int address)
+{
+  return (EEPROM.read(address) << 8) + EEPROM.read(address + 1);
+}
+
+// frem til disse
+
+
 void setup()
 {
   Serial.begin(9600);
   lineSensors.initFiveSensors();
   calibrate();
+  EEPROM.write(0, 100);
+  EEPROM.write(1,100);
 }
 
 void loop()
@@ -466,6 +513,7 @@ void loop()
 
 /*
 To do:
-hidden modus
-- knappetrykk for nødmodus
+hidden modus, per nå 18/11 19:00 er ladingen skrudd av og har ingen aktiveringsmulighet.
+Nødmodus blir aktivert ved 2 sekunder trykk på c i 2 sek.
+
 */
