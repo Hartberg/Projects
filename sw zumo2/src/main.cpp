@@ -1,11 +1,13 @@
-
 #include <Arduino.h>
+#include <EEPROM.h> 
 #include <Zumo32U4.h>
 
 Zumo32U4Motors motors;
 Zumo32U4ButtonA buttonA;
 Zumo32U4ButtonB buttonB;
+Zumo32U4ButtonC buttonC;
 Zumo32U4Encoders encoders;
+Zumo32U4Buzzer buzzer;
 Zumo32U4OLED oled;
 Zumo32U4LineSensors lineSensors;
 
@@ -13,18 +15,21 @@ Zumo32U4LineSensors lineSensors;
 float battery_level = 100;      // batteri prosent
 float batteryDrainAvgSpeed = 0; // batteri utladning fra gjennomsnittsfart * avstand
 
-// oppladningsvariabler
+// --oppladningsvariabler
 float distanceSincelastReverseCharge = 0; // avstand siden siste reversecharge
 float totalBatteryCharge = 0;             // total batteri oppladning i antall prosent
+int charging_cycles = 0;                  // antall ladesykluser
+bool emergancyCharge = false;             // om nødlading er på eller ikke
+unsigned long emergancyChargeTimer = 0;   // når emergancymode blir aktivert
+unsigned long cPressed = 0;               // når c ble trykket
 
 // for linjefølger
 unsigned int lineSensorArray[5]; // array til sensorveridiene
-
-int speedLeft = 0;        // venstre hjulhastigehet
-int speedRight = 0;       // høyre hjulhastighet
-int normalSpeed = 225;    // basisfart for linjefølging
-float lineMultiplier = 0; // tallet hjulene skal ganges med for linjefølging
-int position = 0;         // linejposijon 0-4000
+int speedLeft = 0;               // venstre hjulhastigehet
+int speedRight = 0;              // høyre hjulhastighet
+int normalSpeed = 225;           // basisfart for linjefølging
+float lineMultiplier = 0;        // tallet hjulene skal ganges med for linjefølging
+int position = 0;                // linejposijon 0-4000
 
 // tick telling
 unsigned long timeNow = 0;        // tiden i perioden
@@ -51,17 +56,17 @@ int displayTimeOver70 = 0;                 // displayverdi oppgitt i sekunder
 float displayMaxSpeedMinute = 0;           // displayverdi til maxspeed
 
 // speedometer - average
-float displayAverageSpeedMinute = 0;     // gjennomsnittshastighet i minuteUpdate
-long displayTicksDuringMinute = 0;       // viser sist periodes totale ticks
-long displaytimeElapsedMinuteUpdate = 0; // sist periodes beregning av hastighet
-float sampleSizeSpeedometer = 0;         // hvor mange loops i perioden
-unsigned long speedSum = 0;              // summen av speed i en periode. deles på samplessize for gjennomsnittshastighet
-long timeMotorsOnThisPeriod = 0;         // tiden i en periode motorene har vært på
-// long display
+float displayAverageSpeedMinute = 0;       // gjennomsnittshastighet i minuteUpdate
+long displayTicksDuringMinute = 0;         // viser sist periodes totale ticks
+long displaytimeElapsedMinuteUpdate = 0;   // sist periodes beregning av hastighet
+float sampleSizeSpeedometer = 0;           // hvor mange loops i perioden
+unsigned long speedSum = 0;                // summen av speed i en periode. deles på samplessize for gjennomsnittshastighet
+long timeMotorsOnThisPeriod = 0;           // tiden i en periode motorene har vært på
 unsigned long ticksDuringMinuteUpdate = 0; // antall ticks per minuteUpdate
 
 // drive variabler
 int driveMode = 0; // kjøremodus
+
 // bank variabler
 float bankBalance = 0.0; // Startsaldo for bankkonto
 
@@ -190,6 +195,9 @@ void printValues()
       oled.gotoXY(0, 6);
       oled.print("total lad:");
       oled.print(totalBatteryCharge);
+      oled.gotoXY(0, 7);
+      oled.print("charce cycle:");
+      oled.print(charging_cycles);
 
       lastTimePrint = millis();
     }
@@ -278,41 +286,82 @@ void batteryLowWarning(int batteryHealth) // skrur på lys når battery_level er
   }
 }
 
-void batteryDrain() // to do: lag denne lik reverseCharge så får vi oppdatert hver oppdatering.
+void nrChargecycles() // oppdaterer ladesykluser
 {
-  batteryLowWarning(95); // signaliserer lav batteri.
-
-  if (periodFinished == HIGH) // kjører hver gang minuteUpdate er oppdatert
+  if (totalBatteryCharge > 100 + charging_cycles * 100)
   {
-    batteryDrainAvgSpeed = (displayTicksDuringMinute * displayAverageSpeedMinute) / 1000000; // tallverdien er en vilkårelig konstant for å få en fornuftig nedladning
-
-    battery_level = battery_level - batteryDrainAvgSpeed; // fjerner denne perioden sitt batteriforbruk.
-    periodFinished = LOW;
+    charging_cycles++;
   }
 }
 
-void reverseCharge(bool emergancy) // lader opp batteriet når den rygger
+void batteryChargeDrain(bool emergancy, bool allowReverseCharge) // lader opp batteriet når den rygger. NB!: om vi skal utlade tregere må vi sette på et tidsdelay da opp/utladningsverdien nå er 0.01 som er minste verdi mulig
 {
-  float batteryCharge = 0;                                             // batterioppladningsmengden
-  if (signedSpeed < 0 && (battery_level > 0) && (battery_level < 100)) // legg til && battery < 100 så den ikke lader over 100%
+
+  batteryLowWarning(30);
+  float batteryCharge = 0;                            // batterioppladningsmengden
+  if ((battery_level >= 0) && (battery_level <= 100)) // legg til && battery < 100 så den ikke lader over 100%
   {
     distanceSincelastReverseCharge = totalDistance - distanceSincelastReverseCharge;
 
-    if (emergancy == true && battery_level < 20) // kondisjon for emergancymodus
+    if (allowReverseCharge) // tillater lading og utlading
     {
-      batteryCharge = (speed * distanceSincelastReverseCharge) / 100000; // lader 10 x hastighet til normal lading
+      batteryCharge = (-1 * signedSpeed * distanceSincelastReverseCharge) / 10000000;
     }
-    else // normal lading
+    else if (signedSpeed > 0) // tilater kun utlading (nomralstatus)
     {
-      batteryCharge = (speed * distanceSincelastReverseCharge) / 10000000;
+      batteryCharge = (-1 * speed * distanceSincelastReverseCharge) / 10000000;
     }
 
-    battery_level += batteryCharge;      // ladning vi utfører denne perioden
-    totalBatteryCharge += batteryCharge; // total mengde ladning
+    if (emergancy == true && battery_level < 20 && batteryCharge < 0) // nødlading
+    {
+      batteryCharge = batteryCharge * 10;
+    }
+
+    battery_level += batteryCharge;               // ladning vi utfører denne perioden
+    if (batteryCharge > 0 && battery_level < 100) // legg till totale lademengde
+    {
+      totalBatteryCharge += batteryCharge; // total mengde ladning
+    }
   }
   if (battery_level > 100)
   { // passer på at batteri nivået ikke blir mer enn 100%.
     battery_level = 100;
+  }
+  else if (battery_level < 0)
+  {
+    battery_level = 0;
+  }
+  nrChargecycles();
+}
+
+void emergancyCheck()
+{
+  if (buttonC.getSingleDebouncedPress()) // tar tiden på når knapp blir trykket
+  {
+    cPressed = millis();
+  }
+
+  if (buttonC.getSingleDebouncedRelease()) // // sjekker om knappen er trykket mer enn 2 sekunder
+  {
+    if (millis() - cPressed > 2000)
+    {
+      emergancyCharge = true;
+      emergancyChargeTimer = millis();
+    }
+  }
+
+  if (emergancyCharge == true && millis() - emergancyChargeTimer > 20000) // skrur av funksjonen etter
+  {
+    emergancyCharge = false;
+  }
+
+  if (emergancyCharge == true) // bare en indikator for om emergancy mode er på kan/burde endres f.eks noe beep
+  {
+    ledYellow(true);
+  }
+  else
+  {
+    ledYellow(false);
   }
 }
 
@@ -350,11 +399,12 @@ void driveModeBased()
   }
 }
 
-void deposit(float amount) { //
+void deposit(float amount)
+{ //
   // Etter en jobb er blitt gjort
   bankBalance += amount; // Legg til mengden "amount" som skal legges til i balance
-
 }
+/*
 // Simulere uttak
 void withdraw(){
   // Når en besøker ladestasjon
@@ -377,23 +427,75 @@ void charging(float& battery, float chargeRate) {
   // Øker batterinivået basert på ladetakt
 battery += chargeRate;
 }
+*/
+
+
+ // disse er per 18/11 19:49 ikke implementert inn i koden mer enn at funksjonene er skrevet inn. de blir ikke brukt
+void levels()
+{
+  oled.print(F("Lev"));
+  oled.println(EEPROM.read(0));
+  delay(1000);
+  oled.clear();
+  oled.print(F("Hels"));
+  oled.println(EEPROM.read(1));
+  delay(1000);
+  oled.clear();
+}
+
+void ProductionFualt()
+{
+  int BatHelseRand;
+  int RandomHealthOne = random(0, 1000);
+  int RandomHealthTwo = random (0, 1000);
+  int RandomHealthThree = random(0, 1000);
+  if (RandomHealthOne == RandomHealthTwo && RandomHealthOne == RandomHealthThree)
+  {
+    int BatHelseRand = EEPROM.read(1);
+    int BatHelseNow = BatHelseRand / 2;
+    EEPROM.write(1, BatHelseNow);
+    oled.clear();
+    oled.print(BatHelseNow);
+  }
+}
+
+void writeUnsignedIntIntoEEPROM(int address, unsigned int number)
+{ 
+  EEPROM.write(address, number >> 8);
+  EEPROM.write(address + 1, number & 0xFF);
+}
+unsigned int readUnsignedIntFromEEPROM(int address)
+{
+  return (EEPROM.read(address) << 8) + EEPROM.read(address + 1);
+}
+
+// frem til disse
+
 
 void setup()
 {
   Serial.begin(9600);
   lineSensors.initFiveSensors();
   calibrate();
+  EEPROM.write(0, 100);
+  EEPROM.write(1,100);
 }
 
 void loop()
 {
   tickSensor();
   speedometer();
-  batteryDrain();
-  reverseCharge(false);
+  batteryChargeDrain(emergancyCharge, true); // 1. arg nødmus 2. arg om opplading lov
   printValues();
   updateSensors();
   // followLineP();
   driveModeButton();
+  emergancyCheck();
   driveModeBased();
 }
+
+/*
+To do:
+hidden modus, per nå 18/11 19:00 er ladingen skrudd av og har ingen aktiveringsmulighet.
+
+*/
