@@ -16,26 +16,23 @@ Zumo32U4Motors motors;
 Zumo32U4ButtonA buttonA;
 Zumo32U4OLED oled;
 #define NUM_SENSORS 5                       // 5 Linjefølger-sensorer
-unsigned int lineSensorArray[NUM_SENSORS]; // Array for linjesensorverdiene
-const int16_t numSensors = 5;
 
-// Variabler linjefølging
-const uint16_t followSpeed = 250;  // Hastighet for linjefølging
+// linjefølger
+unsigned int lineSensorArray[NUM_SENSORS]; // Array for linjesensorverdiene
+const uint16_t followSpeed = 250;  // Hastighet for linjefølging PID
 int16_t lastError = 0;             // Variabel for feilmargin
-int16_t position = ;               // bilens posisjon i forhold til linja 0-4000
-int speedLeft = 0;                 // venstre hjulhastigehet
-int speedRight = 0;                // høyre hjulhastighet
-int normalSpeed = 225;             // basisfart for linjefølging
-float lineMultiplier = 0;          // tallet hjulene skal ganges med for linjefølging
-const uint16_t maxSpeed = 400;     // Max hastighet
-int16_t lastError = 0;             // Variabel for feilmargin
+int16_t position;                // bilens posisjon i forhold til linja
+int speedLeft = 0;               // venstre hjulhastigehet
+int speedRight = 0;              // høyre hjulhastighet
+int normalSpeed = 225;           // basisfart for linjefølging P
+float lineMultiplier = 0;        // tallet hjulene skal ganges med for linjefølging
 
 // Variabler for kryss
 bool crossRoad = false;     // Er det kjørt forbi kryss? ja/nei
 bool tCrossRoad = false;    // 
-int16_t numCrossRoads = ;   // Large antallet kryss kjørt fobi
-int16_t numTCrossRoads = ;  // Lagre antallet T-kryss kjørt forbi
-int16_t treshold = 500;     // Hva som regnes som mørk linje
+int16_t numCrossRoads;   // Large antallet kryss kjørt fobi
+int16_t numTCrossRoads;  // Lagre antallet T-kryss kjørt forbi
+int16_t threshold = 200;     // Hva som regnes som mørk linje
 
 void setup(){
   lineSensors.initFiveSensors(); //initier de 5 sensorene
@@ -45,15 +42,17 @@ void setup(){
 }
 
 void loop(){
-  lineFollowPID();
+    updateSensors();
+  lineFollowP();
   if(detectCrossRoad()){
     if (!crossRoad){
       crossRoad = true;
       numCrossRoads++;
       oled.clear();
-      oled.gotoXY(0, 0);
+      oled.setLayout21x8();
+      oled.gotoXY(0, 2);
       oled.print("Crossroad detected");
-      oled.gotoXY(0,1);
+      oled.gotoXY(0,4);
       oled.print("Number Crossroads: ");
       oled.print(numCrossRoads);
     }
@@ -76,38 +75,52 @@ void calibrate()
     lineSensors.calibrate();
   }
   motors.setSpeeds(0, 0);
-  oled.clear();
+
 }
+
 void updateSensors()
 { // leser posisjonen til linjefølger
   position = lineSensors.readLine(lineSensorArray);
 }
 
-void lineFollowPID()
-{ // Følg linje med PID-regulering
+void lineFollowPID(){
+  // leser sensor til linjefølger
+  int16_t position = lineSensors.readLine(lineSensorArray);
   int16_t error = position - 2000;
-  int16_t speedDifference = error / 4 + 6 * (error-lastError); // Proporsjonal betingelse: error / 4 - Dette er en enkel proporsjonal komponent hvor feilen er delt på 4. Dette betyr at hastighetsforskjellen er proporsjonal med feilen, men skalert ned med 4.
-                                                               // Derivert betingelse: 6 * (error - lastError) - Dette er en derivativ komponent som er proporsjonal med endringen i feil over tid (derivasjon av feilen). Det multipliseres med 6 for å justere vektingen av denne termen.
+  int16_t speedDifference = error / 4 + 6 * (error-lastError); // Proporsjonal term: error / 4 - Dette er en enkel proporsjonal komponent hvor feilen er delt på 4. Dette betyr at hastighetsforskjellen er proporsjonal med feilen, men skalert ned med 4.
+  // Derivativ term: 6 * (error - lastError) - Dette er en derivativ komponent som er proporsjonal med endringen i feil over tid (derivasjon av feilen). Det multipliseres med 6 for å justere vektingen av denne termen.
   int16_t leftSpeed = followSpeed + speedDifference;
   int16_t rightSpeed = followSpeed - speedDifference;
-  leftSpeed = constrain(leftSpeed, 0 , followSpeed);               // Constraining left and right speed to not be lower than 0 or higher than followSpeed
-  rightSpeed = constrain(rightSpeed, 0 , followSpeed);
+  leftSpeed = constrain(leftSpeed, 0 , followSpeed) + 50;               // Constraining left and right speed to not be lower than 0 or higher than 400(followSpeed)
+  rightSpeed = constrain(rightSpeed, 0 , followSpeed) + 50;
   motors.setSpeeds(leftSpeed, rightSpeed);                      // Setting the speed for the motors
 }
-void followLineP()
-{ // følger linje med P-regulering
-  lineMultiplier = (map(position, 0, 4000, 100.0, -100.0) / 100.0);
+void lineFollowP()
+{ // følger linje med p regulering
+  /*lineMultiplier = (map(position, 0, 4000, 100.0, -100.0) / 100.0);
   speedLeft = normalSpeed * (1 - lineMultiplier);
   speedRight = normalSpeed * (1 + lineMultiplier);
-  motors.setSpeeds(speedLeft, speedRight);
+  motors.setSpeeds(speedLeft, speedRight);*/
+  lineMultiplier = (map(position, 0, 4000, 100.0, -100.0) / 100.0);
+
+  if (lineMultiplier > -0.1 && lineMultiplier < 0.1) {
+    // Hvis linjemultiplikatoren er nær null, anta at det ikke er noen linje
+    motors.setSpeeds(normalSpeed, normalSpeed); // Fortsett rett fram
+  } else {
+    // Juster hastighetene basert på linjemultiplikatoren
+    speedLeft = normalSpeed * (1 - lineMultiplier);
+    speedRight = normalSpeed * (1 + lineMultiplier);
+    motors.setSpeeds(speedLeft, speedRight);
+  }
 }
 bool detectCrossRoad(){
-  for (int i = 0; i < numSensors; ++i){
-    if ( lineSensorArray[i] > treshold){
+  for (int i = 0; i < NUM_SENSORS; ++i){
+    if ( lineSensorArray[i] < threshold){
       return false;
     }
   }
-  return true
+  return true;
+}
   /*sjekk om man har kjørt forbi et veikryss. 
   det skjer dersom enten/både h og v sensorer leser svart.
     hvis veikryss = ja
@@ -116,7 +129,7 @@ bool detectCrossRoad(){
     tKryss = ja
     tKryssCount = +1
     kjør blindvei()*/
-}
+
 
 void blindvei(){
     rygg tilbake til der krysset er 

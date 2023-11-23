@@ -95,6 +95,9 @@ void calibrate()
   oled.clear();
 }
 
+void readingI() {
+  
+}
 
 
 void updateSensors()
