@@ -1,7 +1,10 @@
 #include <Arduino.h>
 #include <EEPROM.h> 
 #include <Zumo32U4.h>
-#include <sw zumo2.h>
+#include <Zumo32u4IRsender.h>
+
+#define DEVICE_ID 0x01
+#define DIRECTION RIGHT_IR
 
 Zumo32U4Motors motors;
 Zumo32U4ButtonA buttonA;
@@ -11,6 +14,8 @@ Zumo32U4Encoders encoders;
 Zumo32U4Buzzer buzzer;
 Zumo32U4OLED oled;
 Zumo32U4LineSensors lineSensors;
+Zumo32U4ProximitySensors proxSensors;
+
 
 // batterivariabler
 float battery_level = 100;      // batteri prosent
@@ -30,8 +35,7 @@ int speedLeft = 0;               // venstre hjulhastigehet
 int speedRight = 0;              // høyre hjulhastighet
 int normalSpeed = 225;           // basisfart for linjefølging
 float lineMultiplier = 0;        // tallet hjulene skal ganges med for linjefølging
-int16_t position = 0;                // linejposijon 0-4000
-
+int position = 0;                // linejposijon 0-4000
 
 // tick telling
 unsigned long timeNow = 0;        // tiden i perioden
@@ -70,8 +74,7 @@ unsigned long ticksDuringMinuteUpdate = 0; // antall ticks per minuteUpdate
 int driveMode = 0; // kjøremodus
 
 // bank variabler
-float bankBalance =0.0; // Startsaldo for bankkonto
-
+float bankBalance = 0.0; // Startsaldo for bankkonto
 
 void calibrate()
 { // kalibrere sensorene
@@ -92,34 +95,24 @@ void calibrate()
   oled.clear();
 }
 
+
+
 void updateSensors()
-{ // leser posisjonen til linja
+{ // leser sensor til linjefølger
   position = lineSensors.readLine(lineSensorArray);
-}
-
-void lineFollowPID()
-{ // Følg linje med PID-regulering
-  int16_t error = position - 2000;
-  int16_t speedDifference = error / 4 + 6 * (error-lastError); // Proporsjonal betingelse: error / 4 - Dette er en enkel proporsjonal komponent hvor feilen er delt på 4. Dette betyr at hastighetsforskjellen er proporsjonal med feilen, men skalert ned med 4.
-                                                               // Derivert betingelse: 6 * (error - lastError) - Dette er en derivativ komponent som er proporsjonal med endringen i feil over tid (derivasjon av feilen). Det multipliseres med 6 for å justere vektingen av denne termen.
-  int16_t leftSpeed = normalSpeed + speedDifference;
-  int16_t rightSpeed = normalSpeed - speedDifference;
-  leftSpeed = constrain(leftSpeed, 0 , normalSpeed);           // Constraining left and right speed to not be lower than 0 or higher than normalSpeed
-  rightSpeed = constrain(rightSpeed, 0 , normalSpeed);
-  motors.setSpeeds(leftSpeed, rightSpeed);                     // Setting the speed for the motors
-}
-
-void lineFollow()
-{ // følger linje med p regulering
-  lineMultiplier = (map(position, 0, 4000, 100.0, -100.0) / 100.0);
-  speedLeft = normalSpeed * (1 - lineMultiplier);
-  speedRight = normalSpeed * (1 + lineMultiplier);
-  motors.setSpeeds(speedLeft, speedRight);
 }
 
 void drive(int motorSpeedParameter)
 { // kjører begge motor i arg1 hastighet
   motors.setSpeeds(motorSpeedParameter, motorSpeedParameter);
+}
+
+void followLineP()
+{ // følger linje med p regulering
+  lineMultiplier = (map(position, 0, 4000, 100.0, -100.0) / 100.0);
+  speedLeft = normalSpeed * (1 - lineMultiplier);
+  speedRight = normalSpeed * (1 + lineMultiplier);
+  motors.setSpeeds(speedLeft, speedRight);
 }
 
 void printValues()
@@ -419,13 +412,13 @@ void deposit(float amount)
   // Etter en jobb er blitt gjort
   bankBalance += amount; // Legg til mengden "amount" som skal legges til i balance
 }
-
+/*
 // Simulere uttak
-void withdraw(float amount){
+void withdraw(){
   // Når en besøker ladestasjon
   // Sjekker først om man har nok penger på konto
-  if (amount <= bankBalance){
-    bankBalance -= amount; // trekker fra amount penkger som trekkes fra balance
+  if (amount <= balance){
+    balance -= amount; // trekker fra amount penkger som trekkes fra balance
   } else { // Dersom man ikke har nok penger
   oled.clear();
   oled.setLayout21x8();
@@ -442,7 +435,7 @@ void charging(float& battery, float chargeRate) {
   // Øker batterinivået basert på ladetakt
 battery += chargeRate;
 }
-
+*/
 
 
  // disse er per 18/11 19:49 ikke implementert inn i koden mer enn at funksjonene er skrevet inn. de blir ikke brukt
@@ -503,7 +496,7 @@ void loop()
   batteryChargeDrain(emergancyCharge, true); // 1. arg nødmus 2. arg om opplading lov
   printValues();
   updateSensors();
-  // lineFollowP();
+  // followLineP();
   driveModeButton();
   emergancyCheck();
   driveModeBased();
@@ -512,5 +505,6 @@ void loop()
 /*
 To do:
 hidden modus, per nå 18/11 19:00 er ladingen skrudd av og har ingen aktiveringsmulighet.
+Nødmodus blir aktivert ved 2 sekunder trykk på c i 2 sek.
 
 */
