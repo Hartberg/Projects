@@ -1,10 +1,7 @@
+
 #include <Arduino.h>
 #include <EEPROM.h> 
 #include <Zumo32U4.h>
-#include <Zumo32u4IRsender.h>
-
-#define DEVICE_ID 0x01
-#define DIRECTION RIGHT_IR
 
 Zumo32U4Motors motors;
 Zumo32U4ButtonA buttonA;
@@ -14,8 +11,6 @@ Zumo32U4Encoders encoders;
 Zumo32U4Buzzer buzzer;
 Zumo32U4OLED oled;
 Zumo32U4LineSensors lineSensors;
-Zumo32U4ProximitySensors proxSensors;
-
 
 // batterivariabler
 float battery_level = 100;      // batteri prosent
@@ -94,11 +89,6 @@ void calibrate()
   motors.setSpeeds(0, 0);
   oled.clear();
 }
-
-void readingI() {
-  
-}
-
 
 void updateSensors()
 { // leser sensor til linjefølger
@@ -504,10 +494,3 @@ void loop()
   emergancyCheck();
   driveModeBased();
 }
-
-/*
-To do:
-hidden modus, per nå 18/11 19:00 er ladingen skrudd av og har ingen aktiveringsmulighet.
-Nødmodus blir aktivert ved 2 sekunder trykk på c i 2 sek.
-
-*/
