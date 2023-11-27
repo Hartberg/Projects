@@ -15,7 +15,7 @@ Zumo32U4LineSensors lineSensors;
 
 // IR
 const long RECV_PIN = A4; // pin til IR
-unsigned long irNum;      // IR signalet innkommet decodet
+unsigned long irNum = 0;      // IR signalet innkommet decodet
 
 // batterivariabler
 float battery_level = 100;      // batteri prosent
