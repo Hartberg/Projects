@@ -140,7 +140,7 @@ void printValues()
     if (millis() - lastTimePrint > 100) // tidsdelay så skjermen ikke klikker
     {
       oled.clear();
-      oled.setLayout8x2();
+      oled.setLayout21x8();
       oled.gotoXY(0, 0);
       oled.print(speed); // printer ut det inni print. bytt ved behov
       oled.gotoXY(0, 1);

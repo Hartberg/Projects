@@ -1,7 +1,8 @@
 
 #include <Arduino.h>
-#include <EEPROM.h> 
+#include <EEPROM.h>
 #include <Zumo32U4.h>
+#include <IRremote.h>
 
 Zumo32U4Motors motors;
 Zumo32U4ButtonA buttonA;
@@ -11,6 +12,10 @@ Zumo32U4Encoders encoders;
 Zumo32U4Buzzer buzzer;
 Zumo32U4OLED oled;
 Zumo32U4LineSensors lineSensors;
+
+// IR
+const long RECV_PIN = A4; // pin til IR
+unsigned long irNum;      // IR signalet innkommet decodet
 
 // batterivariabler
 float battery_level = 100;      // batteri prosent
@@ -95,6 +100,16 @@ void updateSensors()
   position = lineSensors.readLine(lineSensorArray);
 }
 
+void ReadIR()
+{
+  if (IrReceiver.decode())
+  {
+    irNum = IrReceiver.decodedIRData.decodedRawData;
+    Serial.println(irNum);
+  }
+  IrReceiver.resume();
+}
+
 void drive(int motorSpeedParameter)
 { // kjører begge motor i arg1 hastighet
   motors.setSpeeds(motorSpeedParameter, motorSpeedParameter);
@@ -124,11 +139,13 @@ void printValues()
     if (millis() - lastTimePrint > 100) // tidsdelay så skjermen ikke klikker
     {
       oled.clear();
-      oled.setLayout8x2();
+      oled.setLayout21x8();
       oled.gotoXY(0, 0);
       oled.print(speed); // printer ut det inni print. bytt ved behov
       oled.gotoXY(0, 1);
-      oled.print(2);            // printer hastighet
+      oled.print(3); // printer hastighet
+      oled.gotoXY(0, 3);
+      oled.print(irNum);        // printer ir ting
       lastTimePrint = millis(); // for tidskjøret
     }
     break;
@@ -430,8 +447,7 @@ battery += chargeRate;
 }
 */
 
-
- // disse er per 18/11 19:49 ikke implementert inn i koden mer enn at funksjonene er skrevet inn. de blir ikke brukt
+// disse er per 18/11 19:49 ikke implementert inn i koden mer enn at funksjonene er skrevet inn. de blir ikke brukt
 void levels()
 {
   oled.print(F("Lev"));
@@ -448,7 +464,7 @@ void ProductionFualt()
 {
   int BatHelseRand;
   int RandomHealthOne = random(0, 1000);
-  int RandomHealthTwo = random (0, 1000);
+  int RandomHealthTwo = random(0, 1000);
   int RandomHealthThree = random(0, 1000);
   if (RandomHealthOne == RandomHealthTwo && RandomHealthOne == RandomHealthThree)
   {
@@ -461,10 +477,11 @@ void ProductionFualt()
 }
 
 void writeUnsignedIntIntoEEPROM(int address, unsigned int number)
-{ 
+{
   EEPROM.write(address, number >> 8);
   EEPROM.write(address + 1, number & 0xFF);
 }
+
 unsigned int readUnsignedIntFromEEPROM(int address)
 {
   return (EEPROM.read(address) << 8) + EEPROM.read(address + 1);
@@ -472,14 +489,14 @@ unsigned int readUnsignedIntFromEEPROM(int address)
 
 // frem til disse
 
-
 void setup()
 {
   Serial.begin(9600);
   lineSensors.initFiveSensors();
   calibrate();
   EEPROM.write(0, 100);
-  EEPROM.write(1,100);
+  EEPROM.write(1, 100);
+  IrReceiver.begin(RECV_PIN, ENABLE_LED_FEEDBACK); // for IR Recivier
 }
 
 void loop()

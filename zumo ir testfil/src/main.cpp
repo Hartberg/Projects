@@ -12,8 +12,7 @@ Zumo32U4Motors motors;
 
 const long RECV_PIN = A4;
 IRrecv irrecv(RECV_PIN);
-unsigned long nowTime;
-unsigned long considerTime;
+
 unsigned long irNum;
 
 void setup(){
