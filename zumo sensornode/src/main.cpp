@@ -12,6 +12,7 @@ Zumo32U4Encoders encoders;
 Zumo32U4Buzzer buzzer;
 Zumo32U4OLED oled;
 Zumo32U4LineSensors lineSensors;
+Zumo32U4ProximitySensors proxSensors;
 
 // IR
 const long RECV_PIN = A4; // pin til IR
@@ -145,7 +146,7 @@ void printValues()
       oled.gotoXY(0, 1);
       oled.print(3); // printer hastighet
       oled.gotoXY(0, 3);
-      oled.print(irNum);        // printer ir ting
+      oled.print(irNum, HEX);        // printer ir ting
       lastTimePrint = millis(); // for tidskjøret
     }
     break;
@@ -493,10 +494,12 @@ void setup()
 {
   Serial.begin(9600);
   lineSensors.initFiveSensors();
+  proxSensors.initFrontSensor();
   calibrate();
   EEPROM.write(0, 100);
   EEPROM.write(1, 100);
   IrReceiver.begin(RECV_PIN, ENABLE_LED_FEEDBACK); // for IR Recivier
+  
 }
 
 void loop()
@@ -506,8 +509,9 @@ void loop()
   batteryChargeDrain(emergancyCharge, true); // 1. arg nødmus 2. arg om opplading lov
   printValues();
   updateSensors();
-  // followLineP();
-  driveModeButton();
-  emergancyCheck();
-  driveModeBased();
+  ReadIR();
+  followLineP();
+  //driveModeButton(); // bruker b for å endre mellom kjør og ikke
+  //emergancyCheck(); // samme som under
+  //driveModeBased(); // burde nok puttes inn i en annen funksjon
 }

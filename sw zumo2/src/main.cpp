@@ -349,7 +349,7 @@ void batteryChargeDrain(bool emergancy, bool allowReverseCharge) // lader opp ba
   nrChargecycles();
 }
 
-void emergancyCheck()
+void emergancyCheck() // ved 2sek trykk på c blir emergancyCharge= true
 {
   if (buttonC.getSingleDebouncedPress()) // tar tiden på når knapp blir trykket
   {
