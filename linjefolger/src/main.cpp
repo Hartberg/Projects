@@ -40,8 +40,14 @@ int16_t numCrossRoads = 0; // Large antallet kryss kjørt fobi
 int16_t numTCrossRoads;    // Lagre antallet T-kryss kjørt forbi
 int16_t threshold = 200;   // Hva som regnes som mørk linje
 
+// gap variabler
+unsigned long timeSinceGapDetect = 0; // tiden gap ble oppdaget
+bool onlyGapDetecedWithin10s = false; // et flagg for om gap har vært oppdaget siden ett sekund siden
+
 // switch variabler
-int switchMode; // casen til switchcase ved kryssbasert kjøring
+int switchMode;                   // casen til switchcase ved kryssbasert kjøring
+unsigned long lastTurnAction = 0; // brukes som "klokke" i kryssene. noterer sist arbeid
+bool notInOtherCase;              // sjekker om man er i en case
 
 int sensorZum;               // summen av alle sensorene
 unsigned int lastCrossRoads; // tiden ved siste kryss
@@ -68,7 +74,7 @@ void calibrate()
   motors.setSpeeds(0, 0);
 }
 
-int highestValue(int value)
+int highestValue(int value) // lagrer høyeste verdi av det du putter i 1. arg
 {
   if (value > maxValue)
   {
@@ -76,7 +82,7 @@ int highestValue(int value)
   }
 }
 
-int lineSensorZum()
+int lineSensorZum() // gir ut summen av alle sensorene. lettere å jobb med enn 5 enkelt sensor
 {
   sensorZum = 0;
   for (uint8_t i = 0; i < 5; i++)
@@ -155,66 +161,77 @@ void lineFollowP()
   lineMultiplier = (map(position, 0, 4000, 100.0, -100.0) / 100.0);
 }
 
-bool detectGap()
+bool gapIsDetected()
 {                          // Sjekk om det dukker opp hull i teiplinja. bruker en "all" fuksjon som kun kicker inn dersom ALLE verdiene havner under treshold
   bool gapDetected = true; // Anntar at det er hull i linja til bevist motsatt
-  // Sjekk om noen av sensorene havner under treshold, aka hull i linja
+  // Iterer gjennom alle 5 sensorene
   for (uint8_t i = 0; i < NUM_SENSORS; i++)
   {
-    if (lineSensorArray[i] >= threshold) // om sensorene leser mer eller lik grensen
+    if (lineSensorArray[i] >= threshold) // Dersom en av sensorene leser mer eller lik grensen
     {
-      gapDetected = false; // Er det ikke hull, da er første påstand feil.
+      gapDetected = false; // Er det ikke hull, da er bilen på linja og første påstand feil.
     }
   }
   return gapDetected; // Returner om det er True/false for om det er hull eller ikke
 }
 
+// Se bort ifra midlertidig
 void gapControll()
 { // Sjekker om det har oppstått ett hull i løypa.
-  if (detectGap())
-  { // Hvis hull, print "Gap..." og stop. evt andre ting om ønskelig
-    oled.clear();
-    oled.setLayout21x8();
-    oled.gotoXY(0, 4);
-    oled.print("Gap detected!");
-    motors.setSpeeds(0, 0);
-  }
-  else
-  { // Hvis ikke hull, fortsett å følg linja
-    oled.clear();
-    oled.setLayout21x8();
-    oled.gotoXY(0, 4);
-    oled.print("You good!");
-    lineFollowPID();
+  if (gapIsDetected())
+  { // Hvis hull, switch case 4 (kjør over)
+    switchMode = 4;
   }
 }
-
-void countCrossRoads()
+void countCrossRoads() // teller om man er nådd ett kryss. tidsdelay så den ikke registrerer ett kryss flere ganger
 {
   if (sensorZum > 2400 && millis() - lastCrossRoads > 2500)
   {
-    switchMode = numCrossRoads;
-    numCrossRoads++;
+    switchMode = numCrossRoads; // setter hvilken sving det er til switch casen
+    numCrossRoads++;            // setter neste kryss
 
-    lastCrossRoads = millis();
+    lastCrossRoads = millis(); // noterer når sist kryss var
+  }
+
+  if (gapIsDetected())
+  {
+    switchMode = 4; // vi kjører rett frem når det ikke oppdages noe strek
+    if (onlyGapDetecedWithin10s == false)
+    {
+      timeSinceGapDetect = millis();
+      onlyGapDetecedWithin10s = true;
+    }
+
+    if (millis() - timeSinceGapDetect > 200)
+    { // endre gap bool etter 10s
+      numCrossRoads++;
+    }
+  }
+  else
+  {
+    onlyGapDetecedWithin10s = false;
+    switchMode = 99;
   }
 }
 
-void switchting()
+void switchting() // kjøremodus for sving basert kjøring. kjører pid til vanlig pg går inn i case når den møter kryss.
 {
 
   switch (switchMode)
   {
-  case 0:
+  case 0: // første kryss
+    notInOtherCase= true;
     motors.setLeftSpeed(150);
     motors.setRightSpeed(200);
     if (millis() - lastCrossRoads > 1000)
     { // går ut av case
       switchMode = 99;
+
     }
     break;
 
-  case 1:
+  case 1: // andre kryss
+  notInOtherCase = true;
     motors.setLeftSpeed(200);
     motors.setRightSpeed(200);
     if (millis() - lastCrossRoads > 700)
@@ -223,29 +240,46 @@ void switchting()
     }
     break;
 
-  case 2:
+  case 2: // tredje kryss
+  notInOtherCase = true;
     motors.setLeftSpeed(200);
     motors.setRightSpeed(200);
-    if (millis() - lastCrossRoads > 700)
-    { // går ut av case
-      switchMode = 99;
+    if (millis() - lastCrossRoads > 700) // gå tilbake til default(PID)
+    {                                    // går ut av case
+      switchMode = 99;                   // setter den til default
     }
     break;
 
-  case 3:
-    motors.setLeftSpeed(150);
-    motors.setRightSpeed(0);
-    if (millis() - lastCrossRoads > 500)
-    { // går ut av case
-      switchMode = 99;
+  case 3: // Blindvei
+
+    notInOtherCase = true;
+    if (millis() - lastCrossRoads < 50) // skrur av bilen i 50ms for å spare motor. vil ikke gå fra positiv til negativ fart
+    {
+      motors.setSpeeds(0, 0);
     }
+    else
+    {
+      motors.setLeftSpeed(-100);
+      motors.setRightSpeed(100);
+      if (millis() - lastCrossRoads > 500)
+      { // går ut av case
+        switchMode = 99;
+      }
+    }
+
+  case 4: // gap i tape
+
+    motors.setSpeeds(150, 150);
+
+    // if sensorzum > 1000. {switchmode = 99}
 
   default:
     lineFollowPID();
+    notInOtherCase = false; // 
   }
 }
 
-void oledPrinter()
+void oledPrinter() // printer ut verdier til skjermen
 {
   if (millis() - lastPrintTime > 20)
   {
@@ -270,7 +304,7 @@ void oledPrinter()
   }
 }
 
-void resetMaxValue()
+void resetMaxValue() // resetter max verdi
 {
   if (buttonB.getSingleDebouncedPress())
   {
@@ -288,62 +322,11 @@ void setup()
 
 void loop()
 {
-
   updateSensors();
   switchting();
-
   calibratedLineSensorValues();
-  // gapControll();
+  gapControll();
   oledPrinter();
   resetMaxValue();
   countCrossRoads();
 }
-
-/*
-bool detectCrossRoad()
-{
-  kryss = ja / nei
-                   antallKryss++ 1
-}
-
-void blindvei()
-{
-  rygg tilbake til der krysset er
-          snu 90 *
-      venstre
-          følg linjen igjen
-}
-
-void findChargingStation()
-{
-    kontinuerlig sjekk for ladestasjonens IR-signatur
-    hvis IR-signatur er lest OG batteri er <5%, kjør innom ladestasjon
-    velg mellom 6 alternativer
-        1. Lad fullt opp. koster mest(200), påvirker battery_health
-        2. Lad til 80%, koster mindre(100), påvirker ikke battery_health
-        3. Lad for x mengde kroner, vil koste maks samme som full lading(200) ,kan påvire batteriet dersom det blir ladet >80%
-        4. Lad hurtig, 10x normal hastighet, kun opp til 50%, koster 2x mer som å lade fullt(400), påvirker battery_health
-        5. Battery service, increase battery health with 60, koster 1000
-        6. Battery change, sets battery healt to 100, koster 3000
-}
-
-void dontCrash()
-{
-  ? ikke nødvendig
-        sjekk om man er nært noe
-            hvis litt nært,
-      sakk ned
-          hvis veeeeldig nært,
-      stop, rygg, alternativ rute ? tut om noen kjører forran :)
-}
-
-void Taxi()
-{
-    random kick inn.
-    hent passasjer etter random antall kryss
-        tut når utenfor
-    kjør passasjer til random kryss
-    slipp av passasjer
-        få penger
-        caching lyd :)
-} */
