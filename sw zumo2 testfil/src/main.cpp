@@ -441,4 +441,5 @@ void loop()
   CrossPrint();
   countCrossRoads();
   switchting();
+  driveTaxi();
 }
