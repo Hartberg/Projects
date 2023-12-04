@@ -49,13 +49,12 @@ int switchMode;                   // casen til switchcase ved kryssbasert kjøri
 unsigned long lastTurnAction = 0; // brukes som "klokke" i kryssene. noterer sist arbeid
 bool inOtherCase = false;         // sjekker om man er under opperasjon av en annen case
 
-int sensorZum;               // summen av alle sensorene
-unsigned int lastCrossRoads; // tiden ved siste kryss
+int sensorZum;                // summen av alle sensorene
+unsigned long lastCrossRoads; // tiden ved siste kryss
 
 // printer variabler
 unsigned long lastPrintTime; // tid ved sist print
 int maxValue;                // høyeste verdi av valgfri ting
-
 
 void calibrate()
 { // Kalibrere sensorene
@@ -63,9 +62,9 @@ void calibrate()
   oled.gotoXY(0, 0);
   oled.print("calibrating");
   delay(500);
-  for (int i = 0; i < 100; i++)
+  for (int i = 0; i < 118; i++)
   {
-    if (i < 180)
+    if (i < 118)
     {
       motors.setSpeeds(200, -200); // kjør i sirkel
     }
@@ -111,6 +110,7 @@ void printLineSensorReadingsToSerial()
   Serial.println(); // Ny linje for neste lesing
 }
 
+// Til bruk i kalibreringer og testing
 void calibratedLineSensorValues()
 { // Leser verdiene fra hver enkelt linjesensor og printer(legg inn enten printLineSensorReadingsToSerial eller printLineSensorReadingsToDisplay)
   // Gir verdier 0-1000, der 1000 er helt sort.
@@ -123,7 +123,7 @@ void calibratedLineSensorValues()
     lineSensors.readCalibrated(lineSensorArray);
 
     // Send resultatene til serial monitor, eller legg inn for display.
-    printLineSensorReadingsToSerial();
+    // printLineSensorReadingsToSerial();
   }
 }
 
@@ -141,20 +141,25 @@ void printLineSensorReadingsToDisplay()
 
 void lineFollowPID()
 {
+
   // leser sensor til linjefølger
   int16_t position = lineSensors.readLine(lineSensorArray);
   int16_t error = position - 2000;
-  int16_t speedDifference = error / 4 + 6 * (error - lastError); // Proporsjonal term: error / 4 - Dette er en enkel proporsjonal komponent hvor feilen er delt på 4. Dette betyr at hastighetsforskjellen er proporsjonal med feilen, men skalert ned med 4.
+  int16_t integral = 0.005 * error;                                             // Integral term
+  int16_t speedDifference = (error / 4) + (2 * (error - lastError)) + integral; // Proporsjonal term: error / 4 - Dette er en enkel proporsjonal komponent hvor feilen er delt på 4. Dette betyr at hastighetsforskjellen er proporsjonal med feilen, men skalert ned med 4.
   // Derivativ term: 6 * (error - lastError) - Dette er en derivativ komponent som er proporsjonal med endringen i feil over tid (derivasjon av feilen). Det multipliseres med 6 for å justere vektingen av denne termen.
+
   int16_t leftSpeed = followSpeed + speedDifference;
   int16_t rightSpeed = followSpeed - speedDifference;
-  leftSpeed = constrain(leftSpeed, 0, followSpeed) + 50; // Constraining left and right speed to not be lower than 0 or higher than 400(followSpeed)
-  rightSpeed = constrain(rightSpeed, 0, followSpeed) + 50;
+  leftSpeed = constrain(leftSpeed, 0, followSpeed); // Constraining sørger for at hastigheten til julene ikke går under 0 eller overstiger followspeed
+  rightSpeed = constrain(rightSpeed, 0, followSpeed);
   motors.setSpeeds(leftSpeed, rightSpeed); // Setting the speed for the motors
+  lastError = error;
 }
 
+// følger linje med p regulering
 void lineFollowP()
-{ // følger linje med p regulering
+{
   lineMultiplier = (map(position, 0, 4000, 100.0, -100.0) / 100.0);
   speedLeft = normalSpeed * (1 - lineMultiplier);
   speedRight = normalSpeed * (1 + lineMultiplier);
@@ -162,6 +167,7 @@ void lineFollowP()
   lineMultiplier = (map(position, 0, 4000, 100.0, -100.0) / 100.0);
 }
 
+// Til bruk i countCrossRoads
 bool gapIsDetected()
 {                          // Sjekk om det dukker opp hull i teiplinja. bruker en "all" fuksjon som kun kicker inn dersom ALLE verdiene havner under treshold
   bool gapDetected = true; // Anntar at det er hull i linja til bevist motsatt
@@ -176,7 +182,7 @@ bool gapIsDetected()
   return gapDetected; // Returner om det er True/false for om det er hull eller ikke
 }
 
-// Se bort ifra midlertidig
+// Se bort ifra midlertidig, vurder å slett
 void gapControll()
 { // Sjekker om det har oppstått ett hull i løypa.
   if (gapIsDetected())
@@ -185,13 +191,16 @@ void gapControll()
 }
 void countCrossRoads() // teller om man er nådd ett kryss. tidsdelay så den ikke registrerer ett kryss flere ganger
 {
-  if (sensorZum > 2400 && millis() - lastCrossRoads > 2500)
+  if ((sensorZum > 2500 || lineSensorArray[0] > 900 && sensorZum > 1000 || lineSensorArray[4] > 900 && sensorZum > 1000) && millis() - lastCrossRoads > 2300)
   {
     switchMode = numCrossRoads; // setter hvilken sving det er til switch casen
     numCrossRoads++;            // setter neste kryss
+    Serial.print("Cross Count : ");
+    Serial.println(numCrossRoads);
 
-    if (numCrossRoads == 5)
+    if (numCrossRoads == 4)
     { // resetter etter siste kryss
+      Serial.println("Last Cross, reached, resetting crosscount!");
       numCrossRoads = 0;
     }
     lastCrossRoads = millis(); // noterer når sist kryss var
@@ -199,24 +208,9 @@ void countCrossRoads() // teller om man er nådd ett kryss. tidsdelay så den ik
 
   if (gapIsDetected())
   {
-    if (inOtherCase == false)
-    {                 // passer på at man ikke holder på med en anne case før man hopper inn i gap detect
-      switchMode = 4; // vi kjører rett frem når det ikke oppdages noe strek
-      if (onlyGapDetecedWithin10s == false)
-      {
-        timeSinceGapDetect = millis();
-        onlyGapDetecedWithin10s = true;
-      }
-
-      if (millis() - timeSinceGapDetect > 50 && millis() - lastCrossRoads > 10000) // sjekker at det ikke er oppdaget noe gap på 10 sek og at man har vært i en gap i mer en 0.2s. slik at den ikke registrerer feil numcrossroads++;
-      {                                                                            // endre gap bool etter 10s
-        numCrossRoads++;
-        lastCrossRoads = millis();
-      }
-    }
-    else
-    {
-      onlyGapDetecedWithin10s = false;
+    if (inOtherCase == false) //
+    {                         // passer på at man ikke holder på med en anne case før man hopper inn i gap detect
+      switchMode = 4;         // vi kjører rett frem når det ikke oppdages noe strek
     }
   }
 }
@@ -229,8 +223,8 @@ void switchting() // kjøremodus for sving basert kjøring. kjører pid til vanl
   case 0: // første kryss
     inOtherCase = true;
     motors.setLeftSpeed(150);
-    motors.setRightSpeed(200);
-    if (millis() - lastCrossRoads > 800)
+    motors.setRightSpeed(230);
+    if (millis() - lastCrossRoads > 500)
     { // går ut av case
       switchMode = 99;
     }
@@ -239,8 +233,8 @@ void switchting() // kjøremodus for sving basert kjøring. kjører pid til vanl
   case 1: // andre kryss
     inOtherCase = true;
     motors.setLeftSpeed(200);
-    motors.setRightSpeed(200);
-    if (millis() - lastCrossRoads > 500)
+    motors.setRightSpeed(230);
+    if (millis() - lastCrossRoads > 400)
     { // går ut av case
       switchMode = 99;
     }
@@ -249,42 +243,47 @@ void switchting() // kjøremodus for sving basert kjøring. kjører pid til vanl
   case 2: // tredje kryss
     inOtherCase = true;
     motors.setLeftSpeed(200);
-    motors.setRightSpeed(200);
-    if (millis() - lastCrossRoads > 500) // gå tilbake til default(PID)
+    motors.setRightSpeed(220);
+    if (millis() - lastCrossRoads > 400) // gå tilbake til default(PID)
     {                                    // går ut av case
       switchMode = 99;                   // setter den til default
     }
     break;
 
-  case 3:                                // Blindvei
+  case 3: // Blindvei
+
     buzzer.playFrequency(6000, 250, 12); // tester om case aktiveres
     inOtherCase = true;
-    if (millis() - lastCrossRoads < 50) // skrur av bilen i 50ms for å spare motor. vil ikke gå fra positiv til negativ fart
+    if (millis() - lastCrossRoads > 2600) // kjører rett frem, tilbake og snu. if loopen starter nederst og går oppover
+    {
+      switchMode = 99;
+    }
+    else if (millis() - lastCrossRoads > 2100)
+    {
+      motors.setSpeeds(-180, 180);
+    }
+    else if (millis() - lastCrossRoads > 1100)
+    {
+      motors.setSpeeds(-normalSpeed, -normalSpeed);
+    }
+    else if (millis() - lastCrossRoads > 1000)
     {
       motors.setSpeeds(0, 0);
     }
-    else // snur bilen 90 grader
+    else if (millis() - lastCrossRoads < 1000)
     {
-      motors.setLeftSpeed(-180);
-      motors.setRightSpeed(180);
-      if (millis() - lastCrossRoads > 500)
-      { // går ut av case
-        switchMode = 99;
-      }
+      motors.setSpeeds(normalSpeed, normalSpeed);
     }
     break;
 
-  case 4: // gap i tape
+  case 4:               // gap i tape
     inOtherCase = true; // kjører rett frem til det treffer en strek
-    motors.setSpeeds(150, 150);
-
-    if (sensorZum > 1000) 
+    motors.setSpeeds(200, 200);
+    if (sensorZum > 1000)
     {
       switchMode = 99;
     }
     break;
-
-    // if sensorzum > 1000. {switchmode = 99}
 
   default:
     inOtherCase = false;
@@ -320,6 +319,16 @@ void oledPrinter() // printer ut verdier til skjermen
   }
 }
 
+void CrossPrint()
+{
+  oled.clear();
+  oled.println(numCrossRoads);
+  oled.println(sensorZum);
+  oled.gotoXY(0, 1);
+  oled.println(lineSensorArray[0]);
+  oled.println(lineSensorArray[4]);
+}
+
 void resetMaxValue() // resetter max verdi ved b trykk
 {
   if (buttonB.getSingleDebouncedPress())
@@ -331,7 +340,7 @@ void resetMaxValue() // resetter max verdi ved b trykk
 // Taxi bestillt? ja/nei. til bruk i driveTaxi()
 bool taxiOrder()
 {
-  int randomOrder = random(0, 10);   // Random tall 0-100
+  int randomOrder = random(0, 1000); // Random tall 0-100
   int randomMatch = 1;               // Hva random tallet må være for å kicke inn
   return randomOrder == randomMatch; // Returner true for taxi bestillt, false for taxi ikke bestillt.
 }
@@ -339,14 +348,22 @@ bool taxiOrder()
 // Funksjon for taxi kjøring. skjer kun dersom taxi er bestillt.
 void driveTaxi()
 {
-
-  int randomCrossPickup = random(0, 4);      // Generer random kryss pasasjeren skal hentes i
-  int randomCrossDestination = random(0, 4); // Generer random kryss pasasjeren skal slippes av i
-  bool pickupCompleted = false;              // Variabel for å sjekke om passasjeren har blitt hentet
-  bool dropOffCompleted = false;             // Sjekker om passasjeren har blitt plukket opp
+  int randomCrossPickup = random(1, 4);      // Generer random kryss pasasjeren skal hentes i
+  int randomCrossDestination = random(1, 4); // Generer random kryss pasasjeren skal slippes av i
+  while (randomCrossPickup == randomCrossDestination)
+  { // Sjekker at det ikke er samme kryss som plukkes opp og slippes av i.
+    randomCrossDestination = random(1, 4);
+  }
+  bool pickupCompleted = false; // Variabel for å sjekke om passasjeren har blitt hentet
+  Serial.print("Random Cross: ");
+  Serial.println(randomCrossPickup);
+  Serial.print("Random Destination: ");
+  Serial.println(randomCrossDestination);
 
   oled.clear();
   oled.setLayout21x8();
+  oled.gotoXY(0, 2);
+  oled.print(numCrossRoads);
   oled.gotoXY(0, 4);
   oled.print("Taxi is ordered");
   oled.gotoXY(0, 6);
@@ -357,28 +374,41 @@ void driveTaxi()
 
   while (!pickupCompleted)
   {
-    if (numCrossRoads == randomCrossPickup)
+    if (abs(numCrossRoads - randomCrossPickup) <= 1)
     {
+      Serial.println("Picking up!");
       unsigned long pickupTime = millis();
       while ((millis() - pickupTime) < 5000)
       {
         motors.setSpeeds(0, 0);
         oled.clear();
         oled.setLayout21x8();
+        oled.gotoXY(0, 2);
+        oled.print(numCrossRoads);
         oled.gotoXY(0, 4);
-        oled.print("Picking up passenger");
+        oled.print("Picking up");
+        oled.gotoXY(0, 6);
+        oled.print("Driving to ");
+        oled.gotoXY(0, 7);
+        oled.print("Bober nr. ");
+        oled.print(randomCrossDestination);
       }
       pickupCompleted = true; // Passasjeren er nå plukket opp
     }
     else
     { // Dersom krysset ikke er nådd, fortsett linjefølging
+      Serial.println("On the way to pick up");
       lineFollowPID();
+      countCrossRoads();
     }
   }
+  bool dropOffCompleted = false; // Sjekker om passasjeren har blitt plukket opp
+
   while (!dropOffCompleted)
   {
-    if (numCrossRoads == randomCrossDestination)
+    if (abs(numCrossRoads - randomCrossDestination) <= 1)
     {
+      Serial.println("Arrived!");
       unsigned long stopTime = millis();
       while ((millis() - stopTime) < 5000)
       {
@@ -388,11 +418,25 @@ void driveTaxi()
         oled.gotoXY(0, 4);
         oled.print("We have arrived!");
       }
+      Serial.println("Dropoff complete!");
       dropOffCompleted = true; // Pasasjer er nå sluppet av
     }
     else
     { // Dersom krysset ikke er nådd enda, følg linja
+      Serial.println("On the way to drop off ");
+      oled.clear();
+      oled.setLayout21x8();
+      oled.gotoXY(0, 2);
+      oled.print(numCrossRoads);
+      oled.gotoXY(0, 4);
+      oled.print("Taximeter running");
+      oled.gotoXY(0, 6);
+      oled.print("Driving to ");
+      oled.gotoXY(0, 7);
+      oled.print("Bober nr. ");
+      oled.print(randomCrossDestination);
       lineFollowPID();
+      countCrossRoads();
     }
   }
 }
@@ -408,27 +452,18 @@ void setup()
 void loop()
 {
   updateSensors();
-  switchting();
   calibratedLineSensorValues();
-  // gapControll();
-  oledPrinter();
   resetMaxValue();
+  CrossPrint();
   countCrossRoads();
+
+  if (taxiOrder())
+  {
+    driveTaxi();
+  }
+  else
+  {
+    countCrossRoads();
+    switchting();
+  }
 }
-
-/*
-
-void findChargingStation() // Vurder å drit i :)
-{
-    kontinuerlig sjekk for ladestasjonens IR-signatur
-    hvis IR-signatur er lest OG batteri er <5%, kjør innom ladestasjon
-    velg mellom 6 alternativer
-        1. Lad fullt opp. koster mest(200), påvirker battery_health
-        2. Lad til 80%, koster mindre(100), påvirker ikke battery_health
-        3. Lad for x mengde kroner, vil koste maks samme som full lading(200) ,kan påvire batteriet dersom det blir ladet >80%
-        4. Lad hurtig, 10x normal hastighet, kun opp til 50%, koster 2x mer som å lade fullt(400), påvirker battery_health
-        5. Battery service, increase battery health with 60, koster 1000
-        6. Battery change, sets battery healt to 100, koster 3000
-}
-
-// irsocket: bilibliotek til ir sending

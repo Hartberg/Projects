@@ -49,7 +49,7 @@ int switchMode;                   // casen til switchcase ved kryssbasert kjøri
 unsigned long lastTurnAction = 0; // brukes som "klokke" i kryssene. noterer sist arbeid
 bool inOtherCase = false;         // sjekker om man er under opperasjon av en annen case
 
-int sensorZum;               // summen av alle sensorene
+int sensorZum;                // summen av alle sensorene
 unsigned long lastCrossRoads; // tiden ved siste kryss
 
 // printer variabler
@@ -141,20 +141,25 @@ void printLineSensorReadingsToDisplay()
 
 void lineFollowPID()
 {
+
   // leser sensor til linjefølger
   int16_t position = lineSensors.readLine(lineSensorArray);
   int16_t error = position - 2000;
-  int16_t speedDifference = error / 4 + 8 * (error - lastError); // Proporsjonal term: error / 4 - Dette er en enkel proporsjonal komponent hvor feilen er delt på 4. Dette betyr at hastighetsforskjellen er proporsjonal med feilen, men skalert ned med 4.
+  int16_t integral = 0.005 * error;                                             // Integral term
+  int16_t speedDifference = (error / 4) + (2 * (error - lastError)) + integral; // Proporsjonal term: error / 4 - Dette er en enkel proporsjonal komponent hvor feilen er delt på 4. Dette betyr at hastighetsforskjellen er proporsjonal med feilen, men skalert ned med 4.
   // Derivativ term: 6 * (error - lastError) - Dette er en derivativ komponent som er proporsjonal med endringen i feil over tid (derivasjon av feilen). Det multipliseres med 6 for å justere vektingen av denne termen.
+
   int16_t leftSpeed = followSpeed + speedDifference;
   int16_t rightSpeed = followSpeed - speedDifference;
-  leftSpeed = constrain(leftSpeed, 0, followSpeed) + 50; // Constraining left and right speed to not be lower than 0 or higher than 400(followSpeed)
-  rightSpeed = constrain(rightSpeed, 0, followSpeed) + 50;
+  leftSpeed = constrain(leftSpeed, 0, followSpeed); // Constraining sørger for at hastigheten til julene ikke går under 0 eller overstiger followspeed
+  rightSpeed = constrain(rightSpeed, 0, followSpeed);
   motors.setSpeeds(leftSpeed, rightSpeed); // Setting the speed for the motors
+  lastError = error;
 }
 
+// følger linje med p regulering
 void lineFollowP()
-{ // følger linje med p regulering
+{
   lineMultiplier = (map(position, 0, 4000, 100.0, -100.0) / 100.0);
   speedLeft = normalSpeed * (1 - lineMultiplier);
   speedRight = normalSpeed * (1 + lineMultiplier);
@@ -162,6 +167,7 @@ void lineFollowP()
   lineMultiplier = (map(position, 0, 4000, 100.0, -100.0) / 100.0);
 }
 
+// Til bruk i countCrossRoads
 bool gapIsDetected()
 {                          // Sjekk om det dukker opp hull i teiplinja. bruker en "all" fuksjon som kun kicker inn dersom ALLE verdiene havner under treshold
   bool gapDetected = true; // Anntar at det er hull i linja til bevist motsatt
@@ -176,7 +182,7 @@ bool gapIsDetected()
   return gapDetected; // Returner om det er True/false for om det er hull eller ikke
 }
 
-// Se bort ifra midlertidig
+// Se bort ifra midlertidig, vurder å slett
 void gapControll()
 { // Sjekker om det har oppstått ett hull i løypa.
   if (gapIsDetected())
@@ -185,7 +191,7 @@ void gapControll()
 }
 void countCrossRoads() // teller om man er nådd ett kryss. tidsdelay så den ikke registrerer ett kryss flere ganger
 {
-  if ((sensorZum > 2500 || lineSensorArray[0]> 900 || lineSensorArray[4] > 900) && millis() - lastCrossRoads > 2300)
+  if ((sensorZum > 2500 || lineSensorArray[0] > 900 || lineSensorArray[4] > 900) && millis() - lastCrossRoads > 2300)
   {
     switchMode = numCrossRoads; // setter hvilken sving det er til switch casen
     numCrossRoads++;            // setter neste kryss
@@ -244,21 +250,29 @@ void switchting() // kjøremodus for sving basert kjøring. kjører pid til vanl
     }
     break;
 
-  case 3:                                // Blindvei
+  case 3: // Blindvei
+
     buzzer.playFrequency(6000, 250, 12); // tester om case aktiveres
     inOtherCase = true;
-    if (millis() - lastCrossRoads < 50) // skrur av bilen i 50ms for å spare motor. vil ikke gå fra positiv til negativ fart
+    if (millis() - lastCrossRoads > 2600) // kjører rett frem, tilbake og snu. if loopen starter nederst og går oppover
+    {
+      switchMode = 99;
+    }
+    else if (millis() - lastCrossRoads > 2100)
+    {
+      motors.setSpeeds(-180, 180);
+    }
+    else if (millis() - lastCrossRoads > 1100)
+    {
+      motors.setSpeeds(-normalSpeed, -normalSpeed);
+    }
+    else if (millis() - lastCrossRoads > 1000)
     {
       motors.setSpeeds(0, 0);
     }
-    else // snur bilen 90 grader
+    else if (millis() - lastCrossRoads < 1000)
     {
-      motors.setLeftSpeed(-180);
-      motors.setRightSpeed(180);
-      if (millis() - lastCrossRoads > 500)
-      { // går ut av case
-        switchMode = 99;
-      }
+      motors.setSpeeds(normalSpeed, normalSpeed);
     }
     break;
 
@@ -310,10 +324,9 @@ void CrossPrint()
   oled.clear();
   oled.println(numCrossRoads);
   oled.println(sensorZum);
-  oled.gotoXY(0,1);
+  oled.gotoXY(0, 1);
   oled.println(lineSensorArray[0]);
   oled.println(lineSensorArray[4]);
-
 }
 
 void resetMaxValue() // resetter max verdi ved b trykk
@@ -335,10 +348,13 @@ bool taxiOrder()
 // Funksjon for taxi kjøring. skjer kun dersom taxi er bestillt.
 void driveTaxi()
 {
-
   int randomCrossPickup = random(1, 4);      // Generer random kryss pasasjeren skal hentes i
   int randomCrossDestination = random(1, 4); // Generer random kryss pasasjeren skal slippes av i
-  bool pickupCompleted = false;              // Variabel for å sjekke om passasjeren har blitt hentet
+  while (randomCrossPickup == randomCrossDestination)
+  { // Sjekker at det ikke er samme kryss som plukkes opp og slippes av i.
+    randomCrossDestination = random(1, 4);
+  }
+  bool pickupCompleted = false; // Variabel for å sjekke om passasjeren har blitt hentet
   Serial.print("Random Cross: ");
   Serial.println(randomCrossPickup);
   Serial.print("Random Destination: ");
@@ -440,6 +456,14 @@ void loop()
   resetMaxValue();
   CrossPrint();
   countCrossRoads();
-  switchting();
-  driveTaxi();
+
+  if (taxiOrder())
+  {
+    driveTaxi();
+  }
+  else
+  {
+    countCrossRoads();
+    switchting();
+  }
 }
