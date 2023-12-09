@@ -1,4 +1,4 @@
-// RR Linjefølgerbane
+//  Linjefølgerbane
 // Bane bestående av:
 // 1. Slakke/Krappe svinger.
 // 2. rettvinklede svinger.
@@ -29,7 +29,7 @@ float lineMultiplier = 0;                  // tallet hjulene skal ganges med for
 
 // Variabler for kryss
 bool crossRoad = false;         // Er det kjørt forbi kryss? ja/nei
-int16_t numCrossRoads = 0;      // Large antallet kryss kjørt fobi
+int16_t numCrossRoads = 3;      // Large antallet kryss kjørt fobi
 int16_t threshold = 200;        // Hva som regnes som mørk linje
 int crossDetectionDelay = 2500; // tid som må gå fra et kryss er registrert til neste kan registreres
 
@@ -58,6 +58,34 @@ bool isStraightOnLine()
   }
 }
 
+void highestValue(int value) // lagrer høyeste verdi av det du putter i 1. arg.
+{                            // Til bruk i lineSensorZum()
+  if (value > maxValue)
+  {
+    maxValue = value;
+  }
+}
+
+
+// gir ut summen av alle sensorene. lettere å jobb med enn 5 enkelt sensor
+int lineSensorZum() 
+{
+  sensorZum = 0;
+  for (uint8_t i = 0; i < 5; i++)
+  {
+    sensorZum += lineSensorArray[i];
+  }
+  highestValue(sensorZum);
+  return sensorZum;
+}
+
+// leser posisjonen til linjefølger
+void updateSensors()
+{
+  position = lineSensors.readLine(lineSensorArray);
+  lineSensorZum();
+}
+
 // Kalibrere sensorene
 void calibrate()
 {
@@ -76,62 +104,48 @@ void calibrate()
   }
   while (true)
   {
+    updateSensors();
     oled.clear();
     oled.print("done");
-    motors.setSpeeds(200, -200);
+    motors.setSpeeds(150, -150);
+    if (isStraightOnLine())
+    {
+      break;
+    }
   }
   motors.setSpeeds(0, 0);
 }
 
-void highestValue(int value) // lagrer høyeste verdi av det du putter i 1. arg.
-{                            // Til bruk i lineSensorZum()
-  if (value > maxValue)
-  {
-    maxValue = value;
-  }
-}
-
-int lineSensorZum() // gir ut summen av alle sensorene. lettere å jobb med enn 5 enkelt sensor
-{
-  sensorZum = 0;
-  for (uint8_t i = 0; i < 5; i++)
-  {
-    sensorZum += lineSensorArray[i];
-  }
-  highestValue(sensorZum);
-  return sensorZum;
-}
-
-// leser posisjonen til linjefølger
-void updateSensors()
-{
-  position = lineSensors.readLine(lineSensorArray);
-  lineSensorZum();
-}
+float leftspeed1;
+float rightspeed1;
 
 // Uten I
 void lineFollowPID()
 {
-  // leser sensor til linjefølger
+  // leser sensor til linjefølger 
+  // pid etter modell fra håvard og pål sin kode
+  leftspeed1 =(map(position, 0, 4000, 0, 100))/100.0;
+  rightspeed1 =(map(position, 0, 4000, 100, 0))/100.0;
+
   int16_t position = lineSensors.readLine(lineSensorArray);
   int16_t error = position - 2000;
-  int16_t speedDifference = error / 4 + 8 * (error - lastError); // Proporsjonal term: error / 4 - Dette er en enkel proporsjonal komponent hvor feilen er delt på 4. Dette betyr at hastighetsforskjellen er proporsjonal med feilen, men skalert ned med 4.
+  int16_t speedDifference = error / 4 + 3 * (error - lastError); // Proporsjonal term: error / 4 - Dette er en enkel proporsjonal komponent hvor feilen er delt på 4. Dette betyr at hastighetsforskjellen er proporsjonal med feilen, men skalert ned med 4.
   // Derivativ term: 6 * (error - lastError) - Dette er en derivativ komponent som er proporsjonal med endringen i feil over tid (derivasjon av feilen). Det multipliseres med 6 for å justere vektingen av denne termen.
-  int16_t leftSpeed = normalSpeed + speedDifference;
-  int16_t rightSpeed = normalSpeed - speedDifference;
-  leftSpeed = constrain(leftSpeed, 0, normalSpeed) + 50; // Constraining sørger for at hastigheten til julene ikke går under 0 eller overstiger normalSpeed
-  rightSpeed = constrain(rightSpeed, 0, normalSpeed) + 50;
+  int16_t leftSpeed = normalSpeed*leftspeed1 + speedDifference*leftspeed1;
+  int16_t rightSpeed = normalSpeed*rightspeed1 - speedDifference*rightspeed1;
+  leftSpeed = constrain(leftSpeed, 0, (int16_t)normalSpeed); // Constraining sørger for at hastigheten til julene ikke går under 0 eller overstiger normalSpeed
+  rightSpeed = constrain(rightSpeed, 0, (int16_t)normalSpeed);
   motors.setSpeeds(leftSpeed, rightSpeed); // Setter farta til motorene
 }
 // Med I
 void PID()
 {
-
+  
   // leser sensor til linjefølger
   int16_t position = lineSensors.readLine(lineSensorArray);
   int16_t error = position - 2000;
   int16_t integral = 0.005 * error;                                            // Integral term
-  int16_t speedDifference = error / 0.25 + 3 * (error - lastError) + integral; // Proporsjonal term: error / 4 - Dette er en enkel proporsjonal komponent hvor feilen er delt på 4. Dette betyr at hastighetsforskjellen er proporsjonal med feilen, men skalert ned med 4.
+  int16_t speedDifference = error / 4 + 8 * (error - lastError) + integral; // Proporsjonal term: error / 4 - Dette er en enkel proporsjonal komponent hvor feilen er delt på 4. Dette betyr at hastighetsforskjellen er proporsjonal med feilen, men skalert ned med 4.
   // Derivativ term: 6 * (error - lastError) - Dette er en derivativ komponent som er proporsjonal med endringen i feil over tid (derivasjon av feilen). Det multipliseres med 6 for å justere vektingen av denne termen.
   int16_t leftSpeed = normalSpeed + speedDifference;
   int16_t rightSpeed = normalSpeed - speedDifference;
@@ -241,11 +255,11 @@ void CrossActions()
     inOtherCase = true;
     crossDetectionDelay += 2600; // legger til slik at den ikke registrer kryss på nytt under opplegget
     // kjører rett frem, tilbake og snu. if loopen starter nederst og går oppover
-    if (millis() - lastCrossRoads > 2600)
+    if (millis() - lastCrossRoads > 2150 && isStraightOnLine()) // snurrer helt til den treffer en rett strek
     {
       switchMode = 99;
     }
-    else if (millis() - lastCrossRoads > 2200)
+    else if (millis() - lastCrossRoads > 2100)
     {
       motors.setSpeeds(-180, 180);
     }
@@ -253,7 +267,7 @@ void CrossActions()
     {
       motors.setSpeeds(-normalSpeed, -normalSpeed);
     }
-    else if (millis() - lastCrossRoads > 1050)
+    else if (millis() - lastCrossRoads > 1000)
     {
       motors.setSpeeds(0, 0);
     }
@@ -315,8 +329,6 @@ bool taxiOrder()
   int randomMatch = 1;               // Hva random tallet må være for å kicke inn
   return randomOrder == randomMatch; // Returner true dersom de to variablene er like, false ellers
 }
-
-
 
 // Henter og plukker opp på random kryss og beregner betaling utifra tiden kjørt
 void driveTaxi()
@@ -439,6 +451,7 @@ void setup()
 
 void loop()
 {
+
   if (taxiOrder()) // Sjekker om det er kommet inn en taxi-bestilling
   {
     driveTaxi(); // Hvis bestillt, kjør taxi
