@@ -1,5 +1,6 @@
+//EEPROM FUNKER IKKE
 #include <Arduino.h>
-#include <EEPROM.h> 
+#include <EEPROM.h>
 #include <Zumo32U4.h>
 
 Zumo32U4Motors motors;
@@ -12,8 +13,11 @@ Zumo32U4OLED oled;
 Zumo32U4LineSensors lineSensors;
 
 // batterivariabler
-float battery_level = 100;      // batteri prosent
+float battery_level;      // batteri prosent
 float batteryDrainAvgSpeed = 0; // batteri utladning fra gjennomsnittsfart * avstand
+int battery_health;       // batterihelse 0-100 lagres i eeprom
+bool currentlyUnder5 = false;   // en state detection for om batteriet er under 5%
+int timesUnder5 = 0;            // antall ganger bilen utladet under 5%
 
 // --oppladningsvariabler
 float distanceSincelastReverseCharge = 0; // avstand siden siste reversecharge
@@ -21,7 +25,7 @@ float totalBatteryCharge = 0;             // total batteri oppladning i antall p
 int charging_cycles = 0;                  // antall ladesykluser
 bool emergancyCharge = false;             // om nødlading er på eller ikke
 unsigned long emergancyChargeTimer = 0;   // når emergancymode blir aktivert
-unsigned long cPressed = 0;               // når c ble trykket
+unsigned long cPressedTime = 0;           // når c ble trykket
 
 // for linjefølger
 unsigned int lineSensorArray[5]; // array til sensorveridiene
@@ -29,8 +33,7 @@ int speedLeft = 0;               // venstre hjulhastigehet
 int speedRight = 0;              // høyre hjulhastighet
 int normalSpeed = 225;           // basisfart for linjefølging
 float lineMultiplier = 0;        // tallet hjulene skal ganges med for linjefølging
-int16_t position = 0;                // linejposijon 0-4000
-
+int16_t position = 0;            // linejposijon 0-4000
 
 // tick telling
 unsigned long timeNow = 0;        // tiden i perioden
@@ -39,9 +42,16 @@ float ticksDuringPeriod = 0;      // antall ticks i
 float timeElapsed = 0;            // tiden på periode.  er float for mattematikken den brukes i
 unsigned long lastTimePeriod = 0; // tiden sist periode var
 
+// EEPROM adresser
+uint8_t eeBatteryLevel = 0;
+uint8_t eeBatteryHealth = 1;
+uint8_t eeFundAmount = 2;
+uint8_t eeChargeCyclesCount = 3;
+uint8_t eeLowBatteryOccurences = 4;
+
 // printer/oled verdier
 unsigned long lastTimePrint = 0; // sist displaey ble oppdatert: for tidsdelay
-int displayMode = 1;             // caser til displayet
+int screenNR = 0;                // caser til displayet
 
 // speedometer
 float speed = 0;                           // utregnet absolutt momentanfart
@@ -68,8 +78,21 @@ unsigned long ticksDuringMinuteUpdate = 0; // antall ticks per minuteUpdate
 // drive variabler
 int driveMode = 0; // kjøremodus
 
+// bank
+int account_balance = 250; // bankkonto
 
+// knappevariabler
+bool aPressed = false;
+bool bPressed = false;
+bool cPressed = false;
+unsigned long aTimePressed; // hvor lenge c ble holdt nede
+unsigned long bTimePressed; // hvor lenge c ble holdt nede
+unsigned long cTimePressed; // hvor lenge c ble holdt nede
+int aHeldDown = 0;
+int bHeldDown = 0;
+int cHeldDown = 0;
 
+// kalibrerrrer linjesensor
 void calibrate()
 { // kalibrere sensorene
   oled.clear();
@@ -89,54 +112,83 @@ void calibrate()
   oled.clear();
 }
 
-void updateSensors()
-{ // leser posisjonen til linja
-  position = lineSensors.readLine(lineSensorArray);
-}
-
-
-
-void lineFollow()
-{ // følger linje med p regulering
-  lineMultiplier = (map(position, 0, 4000, 100.0, -100.0) / 100.0);
-  speedLeft = normalSpeed * (1 - lineMultiplier);
-  speedRight = normalSpeed * (1 + lineMultiplier);
-  motors.setSpeeds(speedLeft, speedRight);
-}
-
-void drive(int motorSpeedParameter)
-{ // kjører begge motor i arg1 hastighet
-  motors.setSpeeds(motorSpeedParameter, motorSpeedParameter);
-}
-
-void printValues()
+// leser av sensorverdiene til hjulene
+void tickSensor()
 {
-  if (buttonA.getSingleDebouncedPress()) // endrer displaymodus ved å trykke på A
+  if (millis() - lastTimePeriod > 15) // får mer nøyaktige verider når decoderen får tellt en del rotasjoner
   {
-    displayMode++;
-    if (displayMode == 3)
-    { // reset ved siste displaymodus
-      displayMode = 0;
+    int leftEncoder = encoders.getCountsAndResetLeft();
+    int rightEncoder = encoders.getCountsAndResetRight();
+
+    ticksDuringPeriod = (leftEncoder + rightEncoder) / 2; // avstand med fortegn
+
+    rightEncoder = abs(rightEncoder);
+    leftEncoder = abs(leftEncoder); // får absoluttverdi
+    absTicksDuringPeriod = (leftEncoder + rightEncoder) / 2;
+
+    timeElapsed = millis() - lastTimePeriod; // tid siden sist periode. aka denne periodens tid
+    lastTimePeriod = millis();
+  }
+}
+
+// leser av knappene
+void readButtons()
+{
+  if (buttonA.getSingleDebouncedPress())
+  { // sjekker om knapp a er nede
+    aPressed = true;
+    aTimePressed = millis();
+  }
+
+  if (buttonA.getSingleDebouncedRelease())
+  {
+    aHeldDown = millis() - aTimePressed; // hvor lenge kanppen ble holdt nede
+  }
+
+  if (buttonB.getSingleDebouncedPress())
+  { // sjekker om knapp b er nede
+    bPressed = true;
+    bTimePressed = millis();
+  }
+  if (buttonB.getSingleDebouncedRelease())
+  {
+    bHeldDown = millis() - bTimePressed; // hvor lenge kanppen ble holdt nede
+  }
+
+  if (buttonC.getSingleDebouncedPress())
+  { // sjekker knapp c
+    cPressedTime = millis();
+    cPressed = true;
+  }
+  if (buttonC.getSingleDebouncedRelease())
+  {
+    cHeldDown = millis() - cPressedTime; // hvor lenge kanppen ble holdt nede
+  }
+}
+
+void printToOled()
+{
+  if (aPressed == true) // rullerer skjermer ved knappetrykk
+  {
+    screenNR++;
+    if (screenNR > 3)
+    { // reset ved siste skejrm
+      screenNR = 0;
     }
   }
-  switch (displayMode)
+  if (millis() - lastTimePrint > 100) // oppdater hver 100ms for smoothere skjerm
   {
-  case 0:
-    if (millis() - lastTimePrint > 100) // tidsdelay så skjermen ikke klikker
+    switch (screenNR)
     {
+    case 0:
       oled.clear();
-      oled.setLayout8x2();
+      oled.setLayout21x8();
       oled.gotoXY(0, 0);
-      oled.print(speed); // printer ut det inni print. bytt ved behov
-      oled.gotoXY(0, 1);
-      oled.print(2);            // printer hastighet
-      lastTimePrint = millis(); // for tidskjøret
-    }
-    break;
+      oled.print(aHeldDown);
+      oled.println("A");
+      break;
 
-  case 1:
-    if (millis() - lastTimePrint > 125)
-    { // tidsdelay så skjermen ikke klikker
+    case 1:
       oled.clear();
       oled.setLayout21x8();
       oled.gotoXY(0, 0);
@@ -166,14 +218,9 @@ void printValues()
       oled.print("over 70:");
       oled.print(displayTimeOver70);
       oled.print("s");
+      break;
 
-      lastTimePrint = millis();
-    }
-    break;
-
-  case 2:
-    if (millis() - lastTimePrint > 125)
-    {
+    case 2:
       oled.clear();
       oled.setLayout21x8();
       oled.gotoXY(0, 0);
@@ -201,27 +248,41 @@ void printValues()
       oled.print("charce cycle:");
       oled.print(charging_cycles);
 
-      lastTimePrint = millis();
+      break;
+    case 90: // batteriservice
+    oled.setLayout21x8();
+    oled.gotoXY(0,0);
+    oled.print("battery service");
+    oled.gotoXY(0,1);
+    oled.print("health now:");
+    oled.gotoXY(0,2);
+    oled.print(battery_health);
+
+
+    default:
+      break;
     }
+    lastTimePrint = millis();
   }
 }
 
-void tickSensor()
+// resetter verdier og klargjør for ny loop
+void resetCleanup()
 {
-  if (millis() - lastTimePeriod > 15) // får mer nøyaktige verider når decoderen får tellt en del rotasjoner
-  {
-    int leftEncoder = encoders.getCountsAndResetLeft();
-    int rightEncoder = encoders.getCountsAndResetRight();
+  // knapperestart
+  aPressed = false;
+  aHeldDown = 0;
+  bPressed = false;
+  bHeldDown = 0;
+  cPressed = false; // gjør klar til ny runde
+  cHeldDown = 0;
+}
 
-    ticksDuringPeriod = (leftEncoder + rightEncoder) / 2; // avstand med fortegn
-
-    rightEncoder = abs(rightEncoder);
-    leftEncoder = abs(leftEncoder); // får absoluttverdi
-    absTicksDuringPeriod = (leftEncoder + rightEncoder) / 2;
-
-    timeElapsed = millis() - lastTimePeriod; // tid siden sist periode. aka denne periodens tid
-    lastTimePeriod = millis();
-  }
+void readSensors()
+{
+  tickSensor();
+  position = lineSensors.readLine(lineSensorArray); // les linjesensor
+  readButtons();
 }
 
 void speedometer()
@@ -279,27 +340,9 @@ void speedometer()
     }
   }
 }
-
-void batteryLowWarning(int batteryHealth) // skrur på lys når battery_level er under arg.1
-{
-  if (battery_level < batteryHealth)
-  {
-    ledRed(HIGH);
-  }
-}
-
-void nrChargecycles() // oppdaterer ladesykluser
-{
-  if (totalBatteryCharge > 100 + charging_cycles * 100)
-  {
-    charging_cycles++;
-  }
-}
-
+// 1. arg bool emergancy. 2.arg allow charging
 void batteryChargeDrain(bool emergancy, bool allowReverseCharge) // lader opp batteriet når den rygger. NB!: om vi skal utlade tregere må vi sette på et tidsdelay da opp/utladningsverdien nå er 0.01 som er minste verdi mulig
 {
-
-  batteryLowWarning(30);
   float batteryCharge = 0;                            // batterioppladningsmengden
   if ((battery_level >= 0) && (battery_level <= 100)) // legg til && battery < 100 så den ikke lader over 100%
   {
@@ -326,38 +369,58 @@ void batteryChargeDrain(bool emergancy, bool allowReverseCharge) // lader opp ba
     }
   }
   if (battery_level > 100)
-  { // passer på at batteri nivået ikke blir mer enn 100%.
+  { // passer på at batteri nivået ikke blir mer enn 100% og mindre enn 0%
     battery_level = 100;
   }
   else if (battery_level < 0)
   {
     battery_level = 0;
   }
-  nrChargecycles();
 }
 
-void emergancyCheck() // ved 2sek trykk på c blir emergancyCharge= true
+void nrChargecycles() // oppdaterer ladesykluser
 {
-  if (buttonC.getSingleDebouncedPress()) // tar tiden på når knapp blir trykket
+  if (totalBatteryCharge > 100 + charging_cycles * 100)
   {
-    cPressed = millis();
+    charging_cycles++;
   }
+}
 
-  if (buttonC.getSingleDebouncedRelease()) // // sjekker om knappen er trykket mer enn 2 sekunder
+// antall ganger bilen er utladet under 5%
+void chargedUnder5()
+{
+  if (currentlyUnder5 == false && battery_level < 5)
   {
-    if (millis() - cPressed > 2000)
-    {
-      emergancyCharge = true;
-      emergancyChargeTimer = millis();
-    }
+    currentlyUnder5 = true;
+    timesUnder5++;
   }
+  if (battery_level > 5)
+  { // state change detection
+    currentlyUnder5 = false;
+  }
+}
 
-  if (emergancyCharge == true && millis() - emergancyChargeTimer > 20000) // skrur av funksjonen etter
+void batteryLowWarning(int batteryHealth) // skrur på lys når battery_level er under arg.1
+{
+  if (battery_level < batteryHealth)
+  {
+    ledRed(HIGH);
+  }
+}
+
+// ved 2sek trykk på c blir emergancyCharge= true
+void emergancyCheck()
+{
+  if (cHeldDown > 2000)
+  {
+    emergancyCharge = true;
+  }
+  if (emergancyCharge == true && millis() - emergancyChargeTimer > 20000) // skrur av funksjonen etter 2 s
   {
     emergancyCharge = false;
   }
 
-  if (emergancyCharge == true) // bare en indikator for om emergancy mode er på kan/burde endres f.eks noe beep
+  if (emergancyCharge == true) // indikerer om emergancymode = true
   {
     ledYellow(true);
   }
@@ -367,11 +430,30 @@ void emergancyCheck() // ved 2sek trykk på c blir emergancyCharge= true
   }
 }
 
-void driveModeButton()
-{ // knapp for kjøremodus
-  if (buttonB.getSingleDebouncedPress())
+// samlefunksjon for alarmer/advarsel
+void warnings()
+{
+  batteryLowWarning(30);
+
+}
+
+void batterySuperLow(){
+  
+}
+
+// kjører begge motor i arg1 hastighet
+void drive(int motorSpeedParameter)
+{
+  motors.setSpeeds(motorSpeedParameter, motorSpeedParameter);
+}
+
+// sjekker om knapp b blir trykket og endrer kjøremodus
+void updateDriveMode()
+{
+  if (bPressed == true)
   {
     driveMode++;
+
     if (driveMode == 4)
     {
       driveMode = 0;
@@ -379,88 +461,110 @@ void driveModeButton()
   }
 }
 
+// case med kjør frem tilbake og stå stille ved trykk på knapp B
 void driveModeBased()
-{ // case med kjør frem tilbake og stå stille ved trykk på knapp B
+{
   switch (driveMode)
   {
   case 0:
-    drive(200);
+    drive(0);
     break;
 
   case 1:
-    drive(0);
+    drive(200);
     break;
 
   case 2:
-    drive(-200);
+    drive(0);
     break;
 
   case 3:
-    drive(0);
+    drive(-200);
     break;
   }
 }
 
- // disse er per 18/11 19:49 ikke implementert inn i koden mer enn at funksjonene er skrevet inn. de blir ikke brukt
-void levels()
-{
-  oled.print(F("Lev"));
-  oled.println(EEPROM.read(0));
-  delay(1000);
-  oled.clear();
-  oled.print(F("Hels"));
-  oled.println(EEPROM.read(1));
-  delay(1000);
-  oled.clear();
-}
-
+// simulerer prroduksjonsfeil ved batteripakke
 void ProductionFualt()
 {
-  int BatHelseRand;
   int RandomHealthOne = random(0, 1000);
-  int RandomHealthTwo = random (0, 1000);
+  int RandomHealthTwo = random(0, 1000);
   int RandomHealthThree = random(0, 1000);
   if (RandomHealthOne == RandomHealthTwo && RandomHealthOne == RandomHealthThree)
   {
-    int BatHelseRand = EEPROM.read(1);
-    int BatHelseNow = BatHelseRand / 2;
-    EEPROM.write(1, BatHelseNow);
-    oled.clear();
-    oled.print(BatHelseNow);
+    battery_health = battery_health / 2;
   }
 }
 
-void writeUnsignedIntIntoEEPROM(int address, unsigned int number)
-{ 
-  EEPROM.write(address, number >> 8);
-  EEPROM.write(address + 1, number & 0xFF);
-}
-unsigned int readUnsignedIntFromEEPROM(int address)
+void GetUpstartValuesFromEeprom()
 {
-  return (EEPROM.read(address) << 8) + EEPROM.read(address + 1);
+  EEPROM.get(eeBatteryLevel, battery_level); // må bruke get for float
+  battery_health = EEPROM.read(eeBatteryHealth);
+  charging_cycles = EEPROM.read(charging_cycles);
+  account_balance = EEPROM.read(eeFundAmount);
 }
 
-// frem til disse
+//batteribytte og service
+void batteryHealthService(int repair)
+{
+  battery_health += repair;
+  if (battery_health > 100) { battery_health = 100;}
+  screenNR = 90; // endrer til batterihelsebytte skejrm
 
+}
+
+void batteryHealthUpdate()
+{
+  ProductionFualt();
+  nrChargecycles();
+  chargedUnder5();
+  if (cHeldDown > 5000)
+  {
+    batteryHealthService(40);
+  }
+  else if(cHeldDown > 10000) {
+    batteryHealthService(100);
+  }
+}
+
+// oppdaterer eepromen med riktig informasjon
+void updateEeprom()
+{
+  EEPROM.put(eeBatteryLevel, battery_level);
+  EEPROM.update(eeBatteryHealth, battery_health);
+  EEPROM.update(eeChargeCyclesCount, charging_cycles);
+  EEPROM.update(eeFundAmount, account_balance);
+}
 
 void setup()
 {
+  lineSensors.initFiveSensors(); // initeier linjeSensorer
+  //calibrate();                   // kalibrer linjesensorer
+  GetUpstartValuesFromEeprom();
   Serial.begin(9600);
-  lineSensors.initFiveSensors();
-  calibrate();
-  EEPROM.write(0, 100);
-  EEPROM.write(1,100);
 }
 
 void loop()
 {
-  tickSensor();
-  speedometer();
-  batteryChargeDrain(emergancyCharge, true); // 1. arg nødmus 2. arg om opplading lov
-  printValues();
-  updateSensors();
-  // lineFollowP();
-  driveModeButton();
+
+  readSensors(); // linje / ticks / knapper / opplading / batteribytte
+
+  // --singalprosessering
+  speedometer();                  // omgjør inngangsverdiene til brukbare
+  batteryChargeDrain(true, true); // opp og utladning
+  batteryHealthUpdate();
   emergancyCheck();
-  driveModeBased();
+  updateDriveMode();
+
+  // batterihelseoppdatering(); // regn om noe batterihelse er falt
+  // produksjonfeil();
+  warnings();
+  // --utganger
+
+  driveModeBased(); // kjørefunksjon
+  printToOled();
+  updateEeprom();
+
+  // reset
+  resetCleanup();
 }
