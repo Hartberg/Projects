@@ -1,4 +1,4 @@
-//EEPROM FUNKER IKKE
+// EEPROM FUNKER IKKE
 #include <Arduino.h>
 #include <EEPROM.h>
 #include <Zumo32U4.h>
@@ -13,11 +13,12 @@ Zumo32U4OLED oled;
 Zumo32U4LineSensors lineSensors;
 
 // batterivariabler
-float battery_level;      // batteri prosent
-float batteryDrainAvgSpeed = 0; // batteri utladning fra gjennomsnittsfart * avstand
-int battery_health;       // batterihelse 0-100 lagres i eeprom
-bool currentlyUnder5 = false;   // en state detection for om batteriet er under 5%
-int timesUnder5 = 0;            // antall ganger bilen utladet under 5%
+float battery_level;                // batteri prosent
+float batteryDrainAvgSpeed = 0;     // batteri utladning fra gjennomsnittsfart * avstand
+int battery_health;                 // batterihelse 0-100 lagres i eeprom
+bool currentlyUnder5 = false;       // en state detection for om batteriet er under 5%
+int timesUnder5 = 0;                // antall ganger bilen utladet under 5%
+unsigned long batterySuperLowTimer; // timer til warningsystem
 
 // --oppladningsvariabler
 float distanceSincelastReverseCharge = 0; // avstand siden siste reversecharge
@@ -131,7 +132,7 @@ void tickSensor()
   }
 }
 
-// leser av knappene
+
 void readButtons()
 {
   if (buttonA.getSingleDebouncedPress())
@@ -146,23 +147,23 @@ void readButtons()
   }
 
   if (buttonB.getSingleDebouncedPress())
-  { // sjekker om knapp b er nede
+  { 
     bPressed = true;
     bTimePressed = millis();
   }
   if (buttonB.getSingleDebouncedRelease())
   {
-    bHeldDown = millis() - bTimePressed; // hvor lenge kanppen ble holdt nede
+    bHeldDown = millis() - bTimePressed; 
   }
 
   if (buttonC.getSingleDebouncedPress())
-  { // sjekker knapp c
+  { 
     cPressedTime = millis();
     cPressed = true;
   }
   if (buttonC.getSingleDebouncedRelease())
   {
-    cHeldDown = millis() - cPressedTime; // hvor lenge kanppen ble holdt nede
+    cHeldDown = millis() - cPressedTime; 
   }
 }
 
@@ -172,7 +173,7 @@ void printToOled()
   {
     screenNR++;
     if (screenNR > 3)
-    { // reset ved siste skejrm
+    { 
       screenNR = 0;
     }
   }
@@ -250,14 +251,13 @@ void printToOled()
 
       break;
     case 90: // batteriservice
-    oled.setLayout21x8();
-    oled.gotoXY(0,0);
-    oled.print("battery service");
-    oled.gotoXY(0,1);
-    oled.print("health now:");
-    oled.gotoXY(0,2);
-    oled.print(battery_health);
-
+      oled.setLayout21x8();
+      oled.gotoXY(0, 0);
+      oled.print("battery service");
+      oled.gotoXY(0, 1);
+      oled.print("health now:");
+      oled.gotoXY(0, 2);
+      oled.print(battery_health);
 
     default:
       break;
@@ -269,12 +269,12 @@ void printToOled()
 // resetter verdier og klargjør for ny loop
 void resetCleanup()
 {
-  // knapperestart
+  
   aPressed = false;
   aHeldDown = 0;
   bPressed = false;
   bHeldDown = 0;
-  cPressed = false; // gjør klar til ny runde
+  cPressed = false; 
   cHeldDown = 0;
 }
 
@@ -430,15 +430,17 @@ void emergancyCheck()
   }
 }
 
-// samlefunksjon for alarmer/advarsel
-void warnings()
+
+
+void batterySuperLow()
 {
-  batteryLowWarning(30);
-
-}
-
-void batterySuperLow(){
-  
+  if (millis() - batterySuperLowTimer > 15000)
+  {
+    motors.setSpeeds(0, 0);
+    buzzer.playNote(NOTE_A(4), 100, 10);
+    buzzer.playNote(NOTE_A(4), 100, 10);
+    batterySuperLowTimer = millis();
+  }
 }
 
 // kjører begge motor i arg1 hastighet
@@ -504,13 +506,15 @@ void GetUpstartValuesFromEeprom()
   account_balance = EEPROM.read(eeFundAmount);
 }
 
-//batteribytte og service
+// batteribytte og service
 void batteryHealthService(int repair)
 {
   battery_health += repair;
-  if (battery_health > 100) { battery_health = 100;}
+  if (battery_health > 100)
+  {
+    battery_health = 100;
+  }
   screenNR = 90; // endrer til batterihelsebytte skejrm
-
 }
 
 void batteryHealthUpdate()
@@ -522,7 +526,8 @@ void batteryHealthUpdate()
   {
     batteryHealthService(40);
   }
-  else if(cHeldDown > 10000) {
+  else if (cHeldDown > 10000)
+  {
     batteryHealthService(100);
   }
 }
@@ -536,10 +541,19 @@ void updateEeprom()
   EEPROM.update(eeFundAmount, account_balance);
 }
 
+// samlefunksjon for alarmer/advarsel
+void warnings()
+{
+  batteryLowWarning(30);
+  if (battery_level < 5){
+    batterySuperLow();
+  }
+}
+
 void setup()
 {
   lineSensors.initFiveSensors(); // initeier linjeSensorer
-  //calibrate();                   // kalibrer linjesensorer
+  // calibrate();                   // kalibrer linjesensorer
   GetUpstartValuesFromEeprom();
   Serial.begin(9600);
 }
@@ -556,8 +570,6 @@ void loop()
   emergancyCheck();
   updateDriveMode();
 
-  // batterihelseoppdatering(); // regn om noe batterihelse er falt
-  // produksjonfeil();
   warnings();
   // --utganger
 
