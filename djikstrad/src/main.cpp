@@ -11,7 +11,8 @@
 #define V 17
 
 int currentVerticy; // nåværende plassering
-int nodeList[17];  // liste med punkter til mål
+int nodeList[V];  // liste med punkter til mål
+bool whatnodes[V];  // liste med alle noder i shortest path som 
 
 Zumo32U4ButtonA buttonA;
 
@@ -132,16 +133,17 @@ struct NodeInfo {
 };
 
 // Function to print the shortest path from the source to the destination
-void printPath(int parent[], int j) {
-  if (parent[j] == -1) {
+void printPath(NodeInfo nodeInfo[], int j) {
+  if (nodeInfo[j].parent == -1) {
     Serial.print(j);
     return;
   }
 
-  printPath(parent, parent[j]);
+  printPath(nodeInfo, nodeInfo[j].parent);
   Serial.print(" -> ");
   Serial.print(j);
 }
+
 
 // Function implementing Dijkstra's algorithm with path reconstruction
 void dijkstraWithPath(int graph[V][V], int src, int dest) {
@@ -175,6 +177,7 @@ void dijkstraWithPath(int graph[V][V], int src, int dest) {
 
     // Mark the picked vertex as processed
     sptSet[u] = true;
+    
 
     // Update distances of the adjacent vertices of the picked vertex
     for (int v = 0; v < V; v++) {
@@ -186,7 +189,6 @@ void dijkstraWithPath(int graph[V][V], int src, int dest) {
     }
   }
 
-  // Print the shortest path from src to dest
   Serial.print("Shortest path from ");
   Serial.print(src);
   Serial.print(" to ");
@@ -206,7 +208,7 @@ void loop()
   if (buttonA.getSingleDebouncedPress())
   {
     //mains();
-    dijkstraWithPath(graph, 0, 9);
+    dijkstraWithPath(graph, 12, 8);
     
   }
 }
