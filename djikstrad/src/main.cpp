@@ -2,49 +2,60 @@
 // C++ program for Dijkstra's single source shortest path
 // algorithm. The program is for adjacency matrix
 // representation of the graph
-//using namespace std;
-//#include <limits.h>
+// using namespace std;
+// #include <limits.h>
 #include <Arduino.h>
 #include "Zumo32U4.h"
 
 // Number of vertices in the graph
 #define V 17
 
-int currentVerticy; // nåværende plassering
-int nodeList[V];  // liste med punkter til mål
-int shortestPath[V];  // liste med alle noder i shortest path som 
-int nrTurn = 1; // burkes til å iterere hvor man putter inn nodene i shortestPath[]
+// kjørevariabler
+int16_t position;                // bilens position ifrhold til linja 0-4000
+float lineMultiplier = 0;        // tallet hjulene skal ganges med for linjefølging
+unsigned int lineSensorArray[5]; // lager et array for bilen å sette tall inn i
+int normalSpeed = 150;           // basis fart for
 
+int currentVerticy;  // nåværende plassering
+int nodeList[V];     // liste med punkter til mål
+int shortestPath[V]; // liste med alle noder i shortest path som
+int nrTurn = 1;      // burkes til å iterere hvor man putter inn nodene i shortestPath[]
+
+Zumo32U4Motors motors;
 Zumo32U4ButtonA buttonA;
+Zumo32U4OLED oled;
+Zumo32U4LineSensors lineSensors;
 
-int graph[V][V] = {{0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 
-                   {1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 
-                   {0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 
-                   {1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 
-                   {0, 0, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0}, 
-                   {0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0}, 
-                   {0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0}, 
-                   {0, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0}, 
-                   {0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0}, 
-                   {0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0}, 
-                   {0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0}, 
-                   {0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 1, 0}, 
-                   {0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 
-                   {0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0}, 
-                   {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1}, 
-                   {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0}, 
+int graph[V][V] = {{0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+                   {1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+                   {0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+                   {1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+                   {0, 0, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0},
+                   {0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0},
+                   {0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0},
+                   {0, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0},
+                   {0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0},
+                   {0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0},
+                   {0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0},
+                   {0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 1, 0},
+                   {0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+                   {0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0},
+                   {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1},
+                   {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0},
                    {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0}};
 
-
 // Define a structure to store node information including parent
-struct NodeInfo {
+struct NodeInfo
+{
   int distance; // Distance from the source node
   int parent;   // Parent node in the shortest path
 };
 
 // Function to print the shortest path from the source to the destination
-void printPath(NodeInfo nodeInfo[], int j) {
-  if (nodeInfo[j].parent == -1) {
+void printPath(NodeInfo nodeInfo[], int j)
+{
+  if (nodeInfo[j].parent == -1)
+  {
     Serial.print(j);
     shortestPath[nrTurn] = j;
     nrTurn = 1; // resetter
@@ -54,22 +65,23 @@ void printPath(NodeInfo nodeInfo[], int j) {
   printPath(nodeInfo, nodeInfo[j].parent);
   Serial.print(" -> ");
   Serial.print(j);
-  
+
   shortestPath[nrTurn] = j; // legger til korteste vei i global array
-  nrTurn ++;
+  nrTurn++;
 }
 
-
 // Function implementing Dijkstra's algorithm with path reconstruction
-void dijkstraWithPath(int graph[V][V], int src, int dest) {
-  int dist[V];     // Output array. dist[i] will hold the shortest distance from src to i
-  bool sptSet[V];  // Will be true if vertex i is included in the shortest path tree
-  shortestPath[0] = src; // setter startpunkt i globalarray 
+void dijkstraWithPath(int graph[V][V], int src, int dest)
+{
+  int dist[V];           // Output array. dist[i] will hold the shortest distance from src to i
+  bool sptSet[V];        // Will be true if vertex i is included in the shortest path tree
+  shortestPath[0] = src; // setter startpunkt i globalarray
 
   NodeInfo nodeInfo[V]; // Information about each node (distance and parent)
-  
+
   // Initialize distances as INFINITE and sptSet[] as false
-  for (int i = 0; i < V; i++) {
+  for (int i = 0; i < V; i++)
+  {
     dist[i] = 10000;
     sptSet[i] = false;
     nodeInfo[i].distance = 10000;
@@ -81,23 +93,27 @@ void dijkstraWithPath(int graph[V][V], int src, int dest) {
   nodeInfo[src].distance = 0;
 
   // Find shortest path for all vertices
-  for (int count = 0; count < V - 1; count++) {
+  for (int count = 0; count < V - 1; count++)
+  {
     int u = -1; // Initialize u as -1
-    
+
     // Find the vertex with the minimum distance from the set of vertices not yet processed
-    for (int v = 0; v < V; v++) {
-      if (!sptSet[v] && (u == -1 || dist[v] < dist[u])) {
+    for (int v = 0; v < V; v++)
+    {
+      if (!sptSet[v] && (u == -1 || dist[v] < dist[u]))
+      {
         u = v;
       }
     }
 
     // Mark the picked vertex as processed
     sptSet[u] = true;
-    
 
     // Update distances of the adjacent vertices of the picked vertex
-    for (int v = 0; v < V; v++) {
-      if (!sptSet[v] && graph[u][v] && dist[u] != 10000 && dist[u] + graph[u][v] < dist[v]) {
+    for (int v = 0; v < V; v++)
+    {
+      if (!sptSet[v] && graph[u][v] && dist[u] != 10000 && dist[u] + graph[u][v] < dist[v])
+      {
         dist[v] = dist[u] + graph[u][v];
         nodeInfo[v].distance = dist[v];
         nodeInfo[v].parent = u;
@@ -111,28 +127,68 @@ void dijkstraWithPath(int graph[V][V], int src, int dest) {
   Serial.print(dest);
   Serial.print(": ");
   printPath(nodeInfo, dest);
-  for (int i = 0; i < V; i++) {
+  for (int i = 0; i < V; i++)
+  {
     Serial.println(shortestPath[i]);
   }
 }
 
+// kalibrerrrer linjesensor
+void calibrate()
+{ // kalibrere sensorene
+  oled.clear();
+  oled.gotoXY(0, 0);
+  oled.print("calibrating");
+  delay(500);
+  for (int i = 0; i < 250; i++)
+  {
+    motors.setSpeeds(180, -180); // kjør i sirkel
+    lineSensors.calibrate();
+  }
+  motors.setSpeeds(0, 0);
+  oled.clear();
+  delay(50); // tid til motoren og stoppe helt før den starter å kjøre fremover
+}
+
+void readSensors()
+{
+  position = lineSensors.readLine(lineSensorArray);
+}
+
+// følger linje med p regulering
+void lineFollowP()
+{
+  lineMultiplier = (map(position, 0, 4000, 100.0, -100.0) / 100.0);
+  int speedLeft = normalSpeed * (1.0 - lineMultiplier);
+  int speedRight = normalSpeed * (1.0 + lineMultiplier);
+  motors.setSpeeds(speedLeft, speedRight);
+  oled.clear();
+  oled.gotoXY(0,0);
+  oled.println(speedLeft);
+  oled.gotoXY(0,1);
+  oled.println(speedRight);
+}
 
 void setup()
 {
   Serial.begin(9600);
+  lineSensors.initFiveSensors(); // initier linjesensorer
+  calibrate();
+ 
 }
 
 void loop()
 {
+  readSensors();
+  lineFollowP();
+  /*
   if (buttonA.getSingleDebouncedPress())
   {
-    //mains();
-    dijkstraWithPath(graph, 12, 8);
-    
-  }
-}
 
-// This code is contributed by shivanisinghss2110
+    dijkstraWithPath(graph, 12, 8);
+  }
+  */
+}
 
 /*
 {{0, 1, 2, 2, 1, 2, 5, 2, 3, 4, 3, 4, 5, 6, 5, 3, 4},
@@ -154,22 +210,22 @@ void loop()
 {4, 5, 5, 2, 3, 4, 3, 3, 5, 1, 2, 5, 2, 3, 4, 1, 0}}
 
 kjekkerstue
-{{0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 
-{1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 
-{0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 
-{1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 
-{0, 0, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0}, 
-{0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0}, 
-{0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0}, 
-{0, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0}, 
-{0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0}, 
-{0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0}, 
-{0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0}, 
-{0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 1, 0}, 
-{0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 
-{0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0}, 
-{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1}, 
-{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0}, 
+{{0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+{1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+{0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+{1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+{0, 0, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0},
+{0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0},
+{0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0},
+{0, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0},
+{0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0},
+{0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0},
+{0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0},
+{0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 1, 0},
+{0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+{0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0},
+{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1},
+{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0},
 {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0}}
 
 */
