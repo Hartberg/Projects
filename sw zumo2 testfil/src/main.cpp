@@ -1,3 +1,5 @@
+// tror kan slettes
+
 #include <Arduino.h>
 #include <EEPROM.h> 
 #include <Zumo32U4.h>

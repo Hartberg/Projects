@@ -1,4 +1,4 @@
-// EEPROM FUNKER IKKE
+
 #include <Arduino.h>
 #include <EEPROM.h>
 #include <Zumo32U4.h>
