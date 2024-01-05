@@ -5,7 +5,8 @@
 // using namespace std;
 // #include <limits.h>
 #include <Arduino.h>
-#include "Zumo32U4.h"
+#include <Zumo32U4.h>
+#include <Wire.h>
 
 // Number of vertices in the graph
 #define V 17
@@ -25,11 +26,23 @@ int nrTurn = 1;      // burkes til å iterere hvor man putter inn nodene i short
 unsigned long millisTimer; // timer til oled skjerm
 unsigned long nodeDetectionCD; // samme som over
 
+
+const int32_t turnAngle45 = 0x20000000; // This constant represents a turn of 45 degrees.
+const int32_t turnAngle90 = turnAngle45 * 2;// This constant represents a turn of 90 degrees.
+const int32_t turnAngle1 = (turnAngle45 + 22) / 45; // This constant represents a turn of approximately 1 degree.
+uint32_t turnAngle = 0;
+int16_t turnRate;
+int16_t gyroOffset;
+uint16_t gyroLastUpdate = 0;
+int32_t turnDegree; // brukes som global retningsvariable
+
 Zumo32U4Motors motors;
 Zumo32U4ButtonA buttonA;
+Zumo32U4ButtonB buttonB;
 Zumo32U4OLED oled;
 Zumo32U4LineSensors lineSensors;
 Zumo32U4Buzzer buzzer;
+Zumo32U4IMU imu;
 
 int graph[V][V] = {{0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
                    {1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
@@ -168,11 +181,6 @@ void lineFollowP()
   int speedLeft = normalSpeed * (1.0 - lineMultiplier);
   int speedRight = normalSpeed * (1.0 + lineMultiplier);
   motors.setSpeeds(speedLeft, speedRight);
-  //oled.clear();
-  //oled.gotoXY(0, 0);
-  //oled.println(speedLeft);
-  //oled.gotoXY(0, 1);
-  //oled.println(speedRight);
 }
 
 void printSensor()
@@ -192,6 +200,10 @@ void printSensor()
     oled.print(lineSensorArray[4]);
     oled.gotoXY(10,0);
     oled.print(position);
+    oled.gotoXY(10,1);
+    oled.print((((int32_t)turnAngle >> 16) * 360) >> 16);
+    oled.gotoXY(10,2);
+    oled.print(turnDegree);
 
     millisTimer = millis();
   }
@@ -206,24 +218,99 @@ bool nodeDetect(){
   return false;
 }
 
+void turnSensorReset()
+{
+  gyroLastUpdate = micros();
+  turnAngle = 0;
+}
+
+void turnSensorUpdate()
+{
+  if (buttonB.getSingleDebouncedPress()) {
+    turnSensorReset();
+  }
+  // Read the measurements from the gyro.
+  imu.readGyro();
+  turnRate = imu.g.z - gyroOffset;
+
+  // Figure out how much time has passed since the last update (dt)
+  uint16_t m = micros();
+  uint16_t dt = m - gyroLastUpdate;
+  gyroLastUpdate = m;
+
+  // Multiply dt by turnRate in order to get an estimation of how
+  // much the robot has turned since the last update.
+  // (angular change = angular velocity * time)
+  int32_t d = (int32_t)turnRate * dt;
+
+  // The units of d are gyro digits times microseconds.  We need
+  // to convert those to the units of turnAngle, where 2^29 units
+  // represents 45 degrees.  The conversion from gyro digits to
+  // degrees per second (dps) is determined by the sensitivity of
+  // the gyro: 0.07 degrees per second per digit.
+  //
+  // (0.07 dps/digit) * (1/1000000 s/us) * (2^29/45 unit/degree)
+  // = 14680064/17578125 unit/(digit*us)
+  turnAngle += (int64_t)d * 14680064 / 17578125;
+  turnDegree = ((((int32_t)turnAngle >> 16) * 360) >> 16);
+  if (((((int32_t)turnAngle >> 16) * 360) >> 16) < 0) {
+    turnDegree += 360;
+  }
+  turnDegree = (turnDegree -360)*-1;
+}
+
+
+void turnSensorSetup()
+{
+  Wire.begin();
+  imu.init();
+  imu.enableDefault();
+  imu.configureForTurnSensing();
+  oled.clear();
+  oled.print(F("Gyro cal"));
+  ledYellow(1);
+  delay(500);
+
+  // Calibrate the gyro.
+  int32_t total = 0;
+  for (uint16_t i = 0; i < 1024; i++)
+  {
+    // Wait for new data to be available, then read it.
+    while(!imu.gyroDataReady()) {}
+    imu.readGyro();
+    // Add the Z axis reading to the total.
+    total += imu.g.z;
+  }
+  ledYellow(0);
+  gyroOffset = total / 1024;
+  oled.clear();
+  turnSensorReset();
+  
+}
+
 void setup()
 {
   Serial.begin(9600);
   lineSensors.initFiveSensors(); 
+  turnSensorSetup();
+  delay(100);
   calibrate();
 }
 
 void loop()
 {
   readSensors();
+  turnSensorUpdate();
   printSensor();
+  /*
   if (nodeDetect()){
     delay(100);
     motors.setSpeeds(0,0);
     delay(500);
     nodeDetectionCD = millis();
   }
-  lineFollowP();
+  */
+  //lineFollowP();
   /*
   if (buttonA.getSingleDebouncedPress())
   {
@@ -281,7 +368,7 @@ adjency list // nabo starter kl12 og følger klokken
 5  {8},
 6  {7,3,12},
 7  {4,6,9},
-8  {5,4},
+8  {11,5,4},
 9  {10,7,13},
 10 {14,9},
 11 {15,8,14},
@@ -290,5 +377,25 @@ adjency list // nabo starter kl12 og følger klokken
 14 {11,10,16},
 15 {11},
 16 {14}}
+grader fra/til
+0 {{0,90},
+1  {90,270},
+2  {270,315},
+3  {0,180},
+4  {0,45,135},
+5  {0},
+6  {90,180,270},
+7  {180,270,315},
+8  {0,180,225},
+9  {90,135,270},
+10 {45,270},
+11 {45,180,315},
+12 {90},
+13 {90},
+14 {135,225,270},
+15 {225},
+16 {90}}
+
+
  
 */
