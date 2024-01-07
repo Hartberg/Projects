@@ -11,30 +11,40 @@
 // Number of vertices in the graph
 #define V 17
 
+
+
 // kjørevariabler
-int position;                // bilens position ifrhold til linja 0-4000
+int position;                    // bilens position ifrhold til linja 0-4000
 unsigned int lineSensorArray[5]; // lager et array for bilen å sette tall inn i
 int normalSpeed = 200;           // basis fart for
+float lineMultiplier;            // brukes i pid
 
-float lineMultiplier;
+// til djikstra 
 
-int currentVerticy;  // nåværende plassering
 int nodeList[V];     // liste med punkter til mål
 int shortestPath[V]; // liste med alle noder i shortest path som
 int nrTurn = 1;      // burkes til å iterere hvor man putter inn nodene i shortestPath[]
 
-unsigned long millisTimer; // timer til oled skjerm
+int currentNode;  // nåværende plassering
+int startNode = 15; // punktet vi starter på. endres når vi endrer startpunkt på banen
+int nextNode; // neste node vi skal til
+
+unsigned long millisTimer;     // timer til oled skjerm
 unsigned long nodeDetectionCD; // samme som over
+bool nodeDetectBool = false; // status om node er detected
+bool atNode = false; // status om man er på node
 
+int nextAngle; // vinkel i neste kryss
 
-const int32_t turnAngle45 = 0x20000000; // This constant represents a turn of 45 degrees.
-const int32_t turnAngle90 = turnAngle45 * 2;// This constant represents a turn of 90 degrees.
+// gyro (ikke babb)
+const int32_t turnAngle45 = 0x20000000;             // This constant represents a turn of 45 degrees.
+const int32_t turnAngle90 = turnAngle45 * 2;        // This constant represents a turn of 90 degrees.
 const int32_t turnAngle1 = (turnAngle45 + 22) / 45; // This constant represents a turn of approximately 1 degree.
 uint32_t turnAngle = 0;
-int16_t turnRate;
-int16_t gyroOffset;
-uint16_t gyroLastUpdate = 0;
-int32_t turnDegree; // brukes som global retningsvariable
+int16_t turnRate;            // vet ikke
+int16_t gyroOffset;          // vet ikke
+uint16_t gyroLastUpdate = 0; // no greier
+int32_t turnDegree;          // brukes som global retningsvariable
 
 Zumo32U4Motors motors;
 Zumo32U4ButtonA buttonA;
@@ -44,6 +54,7 @@ Zumo32U4LineSensors lineSensors;
 Zumo32U4Buzzer buzzer;
 Zumo32U4IMU imu;
 
+//adj graph for map
 int graph[V][V] = {{0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
                    {1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
                    {0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
@@ -61,6 +72,45 @@ int graph[V][V] = {{0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
                    {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1},
                    {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0},
                    {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0}};
+
+//adj list for map -99 is fill
+int adjList[V][3] = 
+{{3,1,-99},    
+ {2,0,-99},     
+ {1,4, -99},     
+ {6,0,-99},    
+ {7,8,2},  
+ {8,-99,-99},      //5
+ {7,3,12}, 
+ {4,6,9},  
+ {11,5,4},  
+ {10,7,13},  
+ {14,9,-99},     //10
+ {15,8,14},  
+ {6,-99,-99},        
+ {9,-99,-99},        
+ {11,10,16},   
+ {11,-99,-99},      //15
+ {14,-99,-99}};
+
+int degreeList[V][3] =
+{{0,90,-1},
+ {90,270,-1},
+ {270,315,-1},
+ {0,180,-1},
+ {0,45,135},
+ {0,-1,-1},
+ {90,180,270},
+ {180,270,315},
+ {0,180,225},
+ {90,135,270},
+ {45,270,-1},
+ {45,180,315},
+ {90,-1,-1},
+ {90,-1,-1},
+ {135,225,270},
+ {225,-1,-1},
+ {90,-1,-1}}; 
 
 // Define a structure to store node information including parent
 struct NodeInfo
@@ -190,30 +240,40 @@ void printSensor()
     oled.clear();
     oled.gotoXY(0, 0);
     oled.print(lineSensorArray[0]);
-    oled.gotoXY(0,1);
+    oled.gotoXY(0, 1);
     oled.print(lineSensorArray[1]);
-    oled.gotoXY(0,2);
+    oled.gotoXY(0, 2);
     oled.print(lineSensorArray[2]);
-    oled.gotoXY(0,3);
+    oled.gotoXY(0, 3);
     oled.print(lineSensorArray[3]);
-    oled.gotoXY(0,4);
+    oled.gotoXY(0, 4);
     oled.print(lineSensorArray[4]);
-    oled.gotoXY(10,0);
+    oled.gotoXY(10, 0);
     oled.print(position);
-    oled.gotoXY(10,1);
+    oled.gotoXY(10, 1);
     oled.print((((int32_t)turnAngle >> 16) * 360) >> 16);
-    oled.gotoXY(10,2);
+    oled.gotoXY(10, 2);
     oled.print(turnDegree);
-
     millisTimer = millis();
   }
 }
 
-bool nodeDetect(){
-  if ((lineSensorArray[1] + lineSensorArray[2] + lineSensorArray[3] > 1800) && (millis() - nodeDetectionCD > 500)) { 
+// detect node and wait 100ms
+bool nodeDetect()
+{
+  if ((lineSensorArray[1] + lineSensorArray[2] + lineSensorArray[3] > 1800) && (millis() - nodeDetectionCD > 500))
+  {
     buzzer.playFrequency(440, 100, 10);
-    
+    nodeDetectionCD = millis();
+    nodeDetectBool = true; 
+  }
+  if (millis()- nodeDetectionCD > 100 && nodeDetectBool == true){
+    nodeDetectBool = false;
+    atNode = true;
+    motors.setSpeeds(0,0); // spar hjul
+    delay(10);
     return true;
+
   }
   return false;
 }
@@ -226,7 +286,8 @@ void turnSensorReset()
 
 void turnSensorUpdate()
 {
-  if (buttonB.getSingleDebouncedPress()) {
+  if (buttonB.getSingleDebouncedPress())
+  {
     turnSensorReset();
   }
   // Read the measurements from the gyro.
@@ -253,12 +314,12 @@ void turnSensorUpdate()
   // = 14680064/17578125 unit/(digit*us)
   turnAngle += (int64_t)d * 14680064 / 17578125;
   turnDegree = ((((int32_t)turnAngle >> 16) * 360) >> 16);
-  if (((((int32_t)turnAngle >> 16) * 360) >> 16) < 0) {
+  if (((((int32_t)turnAngle >> 16) * 360) >> 16) < 0)
+  {
     turnDegree += 360;
   }
-  turnDegree = (turnDegree -360)*-1;
+  turnDegree = (turnDegree - 360) * -1; // nå får vi fra 0 til 360 med klokka
 }
-
 
 void turnSensorSetup()
 {
@@ -276,7 +337,9 @@ void turnSensorSetup()
   for (uint16_t i = 0; i < 1024; i++)
   {
     // Wait for new data to be available, then read it.
-    while(!imu.gyroDataReady()) {}
+    while (!imu.gyroDataReady())
+    {
+    }
     imu.readGyro();
     // Add the Z axis reading to the total.
     total += imu.g.z;
@@ -285,39 +348,77 @@ void turnSensorSetup()
   gyroOffset = total / 1024;
   oled.clear();
   turnSensorReset();
+}
+
+void turnToAngle(int angle){
+  if (angle - turnDegree > 10 || angle - turnDegree < -10) {
+    motors.setSpeeds(130,-130);
+  }
+  else{
+      motors.setSpeeds(0,0);
+      atNode = false;
+      delay(100); // spar hjul
+  }
+}
+
+
+void driveTo(int to){
+  int number; // finn neste node i listen
+  for (int i = 0; i < V; i++){
+    if (currentNode == shortestPath[i]){
+      break;
+    }
+    number ++;
+  }
+  nextNode = shortestPath[number+1];
+ 
+  int nextAngleIndex = 0;  // finn neste vinkel
+  for (int i = 0; i < 3; i++){
+    if (adjList[currentNode][i] == nextNode) {
+      break;
+    }
+      nextAngleIndex++;
+  }
+  nextAngle = degreeList[currentNode][nextAngleIndex];
+
+  if (atNode) {
+    turnToAngle(nextAngle);
+  }
+  else{
+    lineFollowP();
+  }
   
 }
+
 
 void setup()
 {
   Serial.begin(9600);
-  lineSensors.initFiveSensors(); 
+  lineSensors.initFiveSensors();
   turnSensorSetup();
   delay(100);
   calibrate();
+  dijkstraWithPath(graph, 12,8);
+  oled.gotoXY(0,1);
+  oled.println("press A When");
+  oled.println("facing N");
+  buttonA.waitForRelease();
+  turnSensorReset();
+  oled.clear();
+  oled.gotoXY(0,1);
+  oled.println("Press A to start");
+  buttonA.waitForRelease();
+
 }
 
 void loop()
 {
   readSensors();
   turnSensorUpdate();
+  nodeDetect();
   printSensor();
-  /*
-  if (nodeDetect()){
-    delay(100);
-    motors.setSpeeds(0,0);
-    delay(500);
-    nodeDetectionCD = millis();
-  }
-  */
-  //lineFollowP();
-  /*
-  if (buttonA.getSingleDebouncedPress())
-  {
-
-    dijkstraWithPath(graph, 12, 8);
-  }
-  */
+  driveTo(8);
+  
 }
 
 /*
@@ -397,5 +498,5 @@ grader fra/til
 16 {90}}
 
 
- 
+
 */
