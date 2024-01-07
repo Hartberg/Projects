@@ -12,11 +12,10 @@
 #define V 17
 
 
-
 // kjørevariabler
 int position;                    // bilens position ifrhold til linja 0-4000
 unsigned int lineSensorArray[5]; // lager et array for bilen å sette tall inn i
-int normalSpeed = 200;           // basis fart for
+int normalSpeed = 150;           // basis fart for
 float lineMultiplier;            // brukes i pid
 
 // til djikstra 
@@ -28,6 +27,7 @@ int nrTurn = 1;      // burkes til å iterere hvor man putter inn nodene i short
 int currentNode;  // nåværende plassering
 int startNode = 15; // punktet vi starter på. endres når vi endrer startpunkt på banen
 int nextNode; // neste node vi skal til
+int destination = 4; // første endepunkt
 
 unsigned long millisTimer;     // timer til oled skjerm
 unsigned long nodeDetectionCD; // samme som over
@@ -35,6 +35,10 @@ bool nodeDetectBool = false; // status om node er detected
 bool atNode = false; // status om man er på node
 
 int nextAngle; // vinkel i neste kryss
+
+// midelertidig global for print
+int currentIndex; 
+bool setupgyroreset= false; // faen shit gyro
 
 // gyro (ikke babb)
 const int32_t turnAngle45 = 0x20000000;             // This constant represents a turn of 45 degrees.
@@ -99,17 +103,17 @@ int degreeList[V][3] =
  {270,315,-1},
  {0,180,-1},
  {0,45,135},
- {0,-1,-1},
+ {0,-1,-1},   //5
  {90,180,270},
  {180,270,315},
  {0,180,225},
  {90,135,270},
- {45,270,-1},
+ {45,270,-1}, //10
  {45,180,315},
  {90,-1,-1},
  {90,-1,-1},
- {135,225,270},
- {225,-1,-1},
+ {135,225,270}, 
+ {225,-1,-1}, //15
  {90,-1,-1}}; 
 
 // Define a structure to store node information including parent
@@ -208,7 +212,7 @@ void calibrate()
   oled.gotoXY(0, 0);
   oled.print("calibrating");
   delay(500);
-  for (int i = 0; i < 200; i++)
+  for (int i = 0; i < 100; i++)
   {
     motors.setSpeeds(180, -180); // kjør i sirkel
     lineSensors.calibrate();
@@ -236,7 +240,8 @@ void lineFollowP()
 void printSensor()
 {
   if (millis() - millisTimer > 20)
-  {
+  { 
+    /*
     oled.clear();
     oled.gotoXY(0, 0);
     oled.print(lineSensorArray[0]);
@@ -253,6 +258,31 @@ void printSensor()
     oled.gotoXY(10, 1);
     oled.print((((int32_t)turnAngle >> 16) * 360) >> 16);
     oled.gotoXY(10, 2);
+    oled.print(turnDegree);
+    */
+   oled.clear();
+    oled.gotoXY(0, 0);
+    for (int i = 0; i <9; i++) {
+      oled.print(shortestPath[i]);
+    }
+     
+    oled.gotoXY(0, 1);
+    oled.print("currentNode: ");
+    oled.print(currentNode);
+    oled.gotoXY(0, 2);
+    oled.print("nextAngle: ");
+    oled.print(nextAngle);
+    oled.gotoXY(0, 3);
+    oled.print("next node: ");
+    oled.print(nextNode);
+    oled.gotoXY(0, 4);
+    oled.print("currentIndex: ");
+    oled.print(currentIndex);
+    oled.gotoXY(0, 5);
+    oled.print("nextnode+1: ");
+    oled.print(shortestPath[currentIndex+2]);
+    oled.gotoXY(0, 6);
+    oled.print("angle: ");
     oled.print(turnDegree);
     millisTimer = millis();
   }
@@ -271,7 +301,6 @@ bool nodeDetect()
     nodeDetectBool = false;
     atNode = true;
     motors.setSpeeds(0,0); // spar hjul
-    delay(10);
     return true;
 
   }
@@ -356,31 +385,36 @@ void turnToAngle(int angle){
   }
   else{
       motors.setSpeeds(0,0);
+      currentNode = nextNode;
       atNode = false;
-      delay(100); // spar hjul
+      // spar hjul
   }
 }
 
-
-void driveTo(int to){
-  int number; // finn neste node i listen
-  for (int i = 0; i < V; i++){
+void nextAngleNode(){
+  currentIndex = 0; // finn neste node i listen
+  for (int i = 0; i < 11; i++){
     if (currentNode == shortestPath[i]){
+      currentIndex = i;
       break;
     }
-    number ++;
   }
-  nextNode = shortestPath[number+1];
+  nextNode = shortestPath[currentIndex+1];
  
   int nextAngleIndex = 0;  // finn neste vinkel
   for (int i = 0; i < 3; i++){
-    if (adjList[currentNode][i] == nextNode) {
+    if (adjList[shortestPath[currentIndex+1]][i] == shortestPath[currentIndex+2]) {
+      nextAngleIndex = i;
+      
       break;
     }
-      nextAngleIndex++;
   }
-  nextAngle = degreeList[currentNode][nextAngleIndex];
+  nextAngle = degreeList[shortestPath[currentIndex+1]][nextAngleIndex];
 
+}
+
+void driveTo(int to){
+  nextAngleNode();
   if (atNode) {
     turnToAngle(nextAngle);
   }
@@ -398,26 +432,39 @@ void setup()
   turnSensorSetup();
   delay(100);
   calibrate();
-  dijkstraWithPath(graph, 12,8);
+  dijkstraWithPath(graph, startNode, destination);
   oled.gotoXY(0,1);
   oled.println("press A When");
   oled.println("facing N");
-  buttonA.waitForRelease();
-  turnSensorReset();
+  buttonA.waitForPress();
   oled.clear();
   oled.gotoXY(0,1);
   oled.println("Press A to start");
-  buttonA.waitForRelease();
+  delay(500);
+  buttonA.waitForPress();
+  currentNode = startNode;
+  nextAngleNode();
+  delay(500);
+
+  
 
 }
 
 void loop()
 {
+  
   readSensors();
   turnSensorUpdate();
   nodeDetect();
   printSensor();
-  driveTo(8);
+  turnToAngle(180);
+  //driveTo(8);
+  
+
+  if(currentNode == destination){
+    motors.setSpeeds(0,0);
+    buttonA.waitForPress();
+  }
   
 }
 
