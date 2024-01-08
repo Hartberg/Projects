@@ -380,7 +380,7 @@ void turnSensorSetup()
 }
 
 void turnToAngle(int angle){
-  if (angle - turnDegree > 10 || angle - turnDegree < -10) {
+  if (angle - turnDegree > 5 || angle - turnDegree < -5) {
     motors.setSpeeds(130,-130);
   }
   else{
@@ -436,7 +436,7 @@ void setup()
   oled.gotoXY(0,1);
   oled.println("press A When");
   oled.println("facing N");
-  buttonA.waitForPress();
+  while (!buttonA.getSingleDebouncedPress()) {}
   oled.clear();
   oled.gotoXY(0,1);
   oled.println("Press A to start");
@@ -452,13 +452,19 @@ void setup()
 
 void loop()
 {
-  
   readSensors();
   turnSensorUpdate();
   nodeDetect();
   printSensor();
-  turnToAngle(180);
-  //driveTo(8);
+ // turnToAngle(180);
+  if (setupgyroreset == true) {
+    driveTo(destination);
+  }
+  if (buttonA.getSingleDebouncedPress()){
+    turnSensorReset();
+    setupgyroreset = true;
+  }
+  
   
 
   if(currentNode == destination){
