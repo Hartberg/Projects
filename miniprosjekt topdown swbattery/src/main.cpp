@@ -430,8 +430,6 @@ void emergancyCheck()
   }
 }
 
-
-
 void batterySuperLow()
 {
   if (millis() - batterySuperLowTimer > 15000)

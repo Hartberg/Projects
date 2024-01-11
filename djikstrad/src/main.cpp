@@ -25,9 +25,9 @@ int shortestPath[V]; // liste med alle noder i shortest path som
 int nrTurn = 1;      // burkes til å iterere hvor man putter inn nodene i shortestPath[]
 
 int currentNode;  // nåværende plassering
-int startNode = 15; // punktet vi starter på. endres når vi endrer startpunkt på banen
+int startNode = 0; // punktet vi starter på. endres når vi endrer startpunkt på banen
 int nextNode; // neste node vi skal til
-int destination = 4; // første endepunkt
+int destination = 16; // første endepunkt
 
 unsigned long millisTimer;     // timer til oled skjerm
 unsigned long nodeDetectionCD; // samme som over
@@ -456,7 +456,10 @@ void loop()
   turnSensorUpdate();
   nodeDetect();
   printSensor();
- // turnToAngle(180);
+  //driveTo(destination);
+  
+  turnToAngle(180);
+ /*
   if (setupgyroreset == true) {
     driveTo(destination);
   }
@@ -464,7 +467,7 @@ void loop()
     turnSensorReset();
     setupgyroreset = true;
   }
-  
+  */
   
 
   if(currentNode == destination){

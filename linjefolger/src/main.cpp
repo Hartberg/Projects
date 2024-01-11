@@ -190,7 +190,6 @@ void lineFollowP()
   speedLeft = normalSpeed * (1 - lineMultiplier);
   speedRight = normalSpeed * (1 + lineMultiplier);
   motors.setSpeeds(speedLeft, speedRight);
-  lineMultiplier = (map(position, 0, 4000, 100.0, -100.0) / 100.0);
 }
 
 // Til bruk i countCrossRoads
