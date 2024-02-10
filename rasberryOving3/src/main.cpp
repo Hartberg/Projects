@@ -1,33 +1,46 @@
-#include <Arduino.h>
-/*
- * There are three serial ports on the ESP known as U0UXD, U1UXD and U2UXD.
- * 
- * U0UXD is used to communicate with the ESP32 for programming and during reset/boot.
- * U1UXD is unused and can be used for your projects. Some boards use this port for SPI Flash access though
- * U2UXD is unused and can be used for your projects.
- * 
-*/
+#include "arduino.h"
+#include "HardwareSerial.h"
 
+//HardwareSerial SerialPort(0);
+int ledPin = 35;
+String recievedData;  
 
-#define RXD2 16
-#define TXD2 17
+void setup()
+{
+  //Serial.begin(9600);
+  Serial.begin(9600,SERIAL_8N1,1,3);
+  delay(100);
 
-void setup() {
-  // Note the format for setting a serial port is as follows: Serial2.begin(baud-rate, protocol, RX pin, TX pin);
-  Serial.begin(9600);
-  //Serial1.begin(9600, SERIAL_8N1, RXD2, TXD2);
-  Serial2.begin(9600, SERIAL_8N1, RXD2, TXD2);
-  Serial.println("Serial Txd is on pin: "+String(TX));
-  Serial.println("Serial Rxd is on pin: "+String(RX));
+  
+  pinMode(ledPin, OUTPUT);
 }
 
-char message; 
+const String on = "On\n";
 
-void loop() { //Choose Serial1 or Serial2 as required
-  while (Serial2.available()) {
-    Serial.print(char(Serial2.read()));
+void loop()
+{
+/*
+  if (SerialPort.available())
+  {
+    recievedData = SerialPort.readStringUntil('\n'); 
+    if (recievedData == on){
+      Serial.print("LIGHT ON");
+      digitalWrite(ledPin, HIGH);
+    }
+    else if (strcmp(recievedData.c_str(), "Off\n")){
+      digitalWrite(ledPin, LOW);
+      Serial.print("LIGHTS OFF");
+    }
+    //Serial.print(recievedData);
+    Serial.println(recievedData.length());
+    Serial.println(strlen("Off\n"));
+    Serial.println(strlen(recievedData.c_str()));
+  }*/
+  if (Serial.available()){
+
+    char number = Serial.read();
+    Serial.print(number);
   }
 
+
 }
-
-
