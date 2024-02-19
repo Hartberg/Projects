@@ -1,46 +1,39 @@
-#include "arduino.h"
-#include "HardwareSerial.h"
+#include <Arduino.h>
+#include <HardwareSerial.h>
 
-//HardwareSerial SerialPort(0);
-int ledPin = 35;
-String recievedData;  
+#define TX_PIN 17
+#define RX_PIN 16
+
+const int LED = 32;
+unsigned long lastPrint = 0;
+
+HardwareSerial SerialPort(2); // use UART2
 
 void setup()
 {
-  //Serial.begin(9600);
-  Serial.begin(9600,SERIAL_8N1,1,3);
-  delay(100);
-
-  
-  pinMode(ledPin, OUTPUT);
+  Serial.begin(9600);
+  SerialPort.begin(9600, SERIAL_8N1, RX_PIN, TX_PIN); // Fixed order of RX and TX pins
+  pinMode(LED, OUTPUT);
 }
-
-const String on = "On\n";
 
 void loop()
 {
-/*
-  if (SerialPort.available())
+  //Serial.println("readyToReceive\n");
+  //SerialPort.println("readyToReceive\n");
+  if (SerialPort.available() > 0)
   {
-    recievedData = SerialPort.readStringUntil('\n'); 
-    if (recievedData == on){
-      Serial.print("LIGHT ON");
-      digitalWrite(ledPin, HIGH);
-    }
-    else if (strcmp(recievedData.c_str(), "Off\n")){
-      digitalWrite(ledPin, LOW);
-      Serial.print("LIGHTS OFF");
-    }
-    //Serial.print(recievedData);
-    Serial.println(recievedData.length());
-    Serial.println(strlen("Off\n"));
-    Serial.println(strlen(recievedData.c_str()));
-  }*/
-  if (Serial.available()){
+    Serial.println("readyToReceive");
+    String ledRec = SerialPort.readString();
 
-    char number = Serial.read();
-    Serial.print(number);
+    // SI IFRA AT JEG ER FERDIG
+    Serial.println(ledRec);
+    if (ledRec == "Off")
+    {
+      digitalWrite(LED, LOW);
+    }
+    if (ledRec == "On")
+    {
+      digitalWrite(LED, HIGH);
+    }
   }
-
-
 }
