@@ -1,21 +1,16 @@
-/*********
-  Rui Santos
-  Complete project details at https://randomnerdtutorials.com  
-*********/
-
-#include <WiFi.h>
-#include <PubSubClient.h>
-#include <Wire.h>
 #include <Adafruit_BMP280.h>
 #include <Adafruit_Sensor.h>
+#include <PubSubClient.h>
+#include <WiFi.h>
+#include <Wire.h>
 
 // Replace the next variables with your SSID/Password combination
-const char* ssid = "REPLACE_WITH_YOUR_SSID";
-const char* password = "REPLACE_WITH_YOUR_PASSWORD";
+const char* ssid = "NTNU-IOT";
+const char* password = "";
 
 // Add your MQTT Broker IP address, example:
-//const char* mqtt_server = "192.168.1.144";
-const char* mqtt_server = "YOUR_MQTT_BROKER_IP_ADDRESS";
+// const char* mqtt_server = "192.168.1.144";
+const char* mqtt_server = "10.25.17.100";
 
 WiFiClient espClient;
 PubSubClient client(espClient);
@@ -23,37 +18,24 @@ long lastMsg = 0;
 char msg[50];
 int value = 0;
 
-//uncomment the following lines if you're using SPI
+// uncomment the following lines if you're using SPI
 /*#include <SPI.h>
-#define BMP_SCK 18
-#define BMP_MISO 19
-#define BMP_MOSI 23
-#define BMP_CS 5*/
+#define BME_SCK 18
+#define BME_MISO 19
+#define BME_MOSI 23
+#define BME_CS 5*/
 
-Adafruit_BMP280 bmp; // I2C
-Adafruit_BMP280 bmp(BMP_CS); // hardware SPI
-//Adafruit_BMP280 bmp(BMP_CS, BMP_MOSI, BMP_MISO, BMP_SCK); // software SPI
+Adafruit_BMP280 bmp;  // I2C
+// Adafruit_BME280 bmp(BME_CS); // hardware SPI
+// Adafruit_BME280 bmp(BME_CS, BME_MOSI, BME_MISO, BME_SCK); // software SPI
+
 float temperature = 0;
-float humidity = 0;
+float pressure = 0;
+
+char carID[8] = "0001";  // idNummer bil double for formatering
 
 // LED Pin
 const int ledPin = 4;
-
-void setup() {
-  Serial.begin(115200);
-  // default settings
-  // (you can also pass in a Wire library object like &Wire2)
-  //status = bmp.begin();  
-  if (!bmp.begin(0x76)) {
-    Serial.println("Could not find a valid BMP280 sensor, check wiring!");
-    while (1);
-  }
-  setup_wifi();
-  client.setServer(mqtt_server, 1883);
-  client.setCallback(callback);
-
-  pinMode(ledPin, OUTPUT);
-}
 
 void setup_wifi() {
   delay(10);
@@ -80,7 +62,7 @@ void callback(char* topic, byte* message, unsigned int length) {
   Serial.print(topic);
   Serial.print(". Message: ");
   String messageTemp;
-  
+
   for (int i = 0; i < length; i++) {
     Serial.print((char)message[i]);
     messageTemp += (char)message[i];
@@ -89,15 +71,15 @@ void callback(char* topic, byte* message, unsigned int length) {
 
   // Feel free to add more if statements to control more GPIOs with MQTT
 
-  // If a message is received on the topic esp32/output, you check if the message is either "on" or "off". 
-  // Changes the output state according to the message
+  // If a message is received on the topic esp32/output, you check if the
+  // message is either "on" or "off". Changes the output state according to the
+  // message
   if (String(topic) == "esp32/output") {
     Serial.print("Changing output to ");
-    if(messageTemp == "on"){
+    if (messageTemp == "on") {
       Serial.println("on");
       digitalWrite(ledPin, HIGH);
-    }
-    else if(messageTemp == "off"){
+    } else if (messageTemp == "off") {
       Serial.println("off");
       digitalWrite(ledPin, LOW);
     }
@@ -122,6 +104,25 @@ void reconnect() {
     }
   }
 }
+
+void setup() {
+  Serial.begin(9600);
+  // default settings
+  // (you can also pass in a Wire library object like &Wire2)
+  unsigned status;
+  status = bmp.begin();
+  if (!bmp.begin(0x76)) {
+    Serial.println("Could not find a valid BMP280 sensor, check wiring!");
+    while (1)
+      ;
+  }
+  setup_wifi();
+  client.setServer(mqtt_server, 1883);
+  client.setCallback(callback);
+
+  pinMode(ledPin, OUTPUT);
+}
+
 void loop() {
   if (!client.connected()) {
     reconnect();
@@ -131,27 +132,29 @@ void loop() {
   long now = millis();
   if (now - lastMsg > 5000) {
     lastMsg = now;
-    
+
     // Temperature in Celsius
-    temperature = bmp.readTemperature();   
-    // Uncomment the next line to set temperature in Fahrenheit 
-    // (and comment the previous temperature line)
-    //temperature = 1.8 * bmp.readTemperature() + 32; // Temperature in Fahrenheit
-    
+    temperature = bmp.readTemperature()/100;
     // Convert the value to a char array
     char tempString[8];
     dtostrf(temperature, 1, 2, tempString);
     Serial.print("Temperature: ");
     Serial.println(tempString);
     client.publish("esp32/temperature", tempString);
+    /*
+     pressure = bmp.readPressure();
+     // Convert the value to a char array
+     char pressString[8];
+     dtostrf(pressure, 1, 2, pressString);
+     Serial.print("Pressure: ");
+     Serial.println(pressString);
+     client.publish("esp32/pressure", pressString);
+ */
+     //send carID
 
-    humidity = bmp.
-    
-    // Convert the value to a char array
-    char humString[8];
-    dtostrf(humidity, 1, 2, humString);
-    Serial.print("Humidity: ");
-    Serial.println(humString);
-    client.publish("esp32/humidity", humString);
+     Serial.print("carID: ");
+     Serial.println(carID);
+     client.publish("esp32/ID-number", carID);
+ 
   }
 }
