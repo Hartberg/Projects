@@ -7,46 +7,35 @@
 // Replace the next variables with your SSID/Password combination
 const char* ssid = "NTNU-IOT";
 const char* password = "";
+//ko
 
 // Add your MQTT Broker IP address, example:
-// const char* mqtt_server = "192.168.1.144";
-const char* mqtt_server = "10.25.17.100";
+const char* mqtt_server = "10.25.17.100"; // rpi ip adresse
 
 WiFiClient espClient;
 PubSubClient client(espClient);
+Adafruit_BMP280 bmp;  // I2C
 long lastMsg = 0;
 char msg[50];
 int value = 0;
 
-// uncomment the following lines if you're using SPI
-/*#include <SPI.h>
-#define BME_SCK 18
-#define BME_MISO 19
-#define BME_MOSI 23
-#define BME_CS 5*/
-
-Adafruit_BMP280 bmp;  // I2C
-// Adafruit_BME280 bmp(BME_CS); // hardware SPI
-// Adafruit_BME280 bmp(BME_CS, BME_MOSI, BME_MISO, BME_SCK); // software SPI
-
+//variablelr til å sende
 float temperature = 0;
 float pressure = 0;
-
-char carID[8] = "0001";  // idNummer bil double for formatering
+char carID[8] = "0001";  // idNummer bil nummer. må bruke char[] format
 
 // LED Pin
 const int ledPin = 4;
 
 void setup_wifi() {
   delay(10);
-  // We start by connecting to a WiFi network
+  // kolbe på wifi
   Serial.println();
   Serial.print("Connecting to ");
   Serial.println(ssid);
-
   WiFi.begin(ssid, password);
 
-  while (WiFi.status() != WL_CONNECTED) {
+  while (WiFi.status() != WL_CONNECTED) { // viser prikker til kobling er god
     delay(500);
     Serial.print(".");
   }
@@ -108,7 +97,7 @@ void reconnect() {
 void setup() {
   Serial.begin(9600);
   // default settings
-  // (you can also pass in a Wire library object like &Wire2)
+  //sjekker at sensor er riktig koblet. trengs ikke dersom en ikke bruker bmp sensor
   unsigned status;
   status = bmp.begin();
   if (!bmp.begin(0x76)) {
@@ -116,10 +105,10 @@ void setup() {
     while (1)
       ;
   }
+  //setter opp mqtt og wifi
   setup_wifi();
   client.setServer(mqtt_server, 1883);
   client.setCallback(callback);
-
   pinMode(ledPin, OUTPUT);
 }
 
@@ -129,29 +118,29 @@ void loop() {
   }
   client.loop();
 
+//sender melding hvert 5. sek
   long now = millis();
   if (now - lastMsg > 5000) {
     lastMsg = now;
 
     // Temperature in Celsius
     temperature = bmp.readTemperature()/100;
-    // Convert the value to a char array
     char tempString[8];
     dtostrf(temperature, 1, 2, tempString);
     Serial.print("Temperature: ");
     Serial.println(tempString);
     client.publish("esp32/temperature", tempString);
-    /*
+    
      pressure = bmp.readPressure();
      // Convert the value to a char array
-     char pressString[8];
+     char pressString[8]; 
      dtostrf(pressure, 1, 2, pressString);
      Serial.print("Pressure: ");
      Serial.println(pressString);
      client.publish("esp32/pressure", pressString);
- */
-     //send carID
+ 
 
+     //send carID
      Serial.print("carID: ");
      Serial.println(carID);
      client.publish("esp32/ID-number", carID);
