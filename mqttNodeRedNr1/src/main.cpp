@@ -10,7 +10,7 @@ const char* password = "";
 //ko
 
 // Add your MQTT Broker IP address, example:
-const char* mqtt_server = "10.25.17.100"; // rpi ip adresse
+const char* mqtt_server = "10.25.18.202"; // rpi ip adresse
 
 WiFiClient espClient;
 PubSubClient client(espClient);
@@ -131,7 +131,7 @@ void loop() {
     Serial.println(tempString);
     client.publish("esp32/temperature", tempString);
     
-     pressure = bmp.readPressure();
+     pressure = bmp.readPressure()/100;
      // Convert the value to a char array
      char pressString[8]; 
      dtostrf(pressure, 1, 2, pressString);
